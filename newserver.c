@@ -12,19 +12,24 @@
 #include <signal.h>
 #include <netdb.h>
 #include <pthread.h>
+#include <string.h>
 #define ERR(source) (perror(source),\
 		     fprintf(stderr,"%s:%d\n",__FILE__,__LINE__),\
 		     exit(EXIT_FAILURE))
 #define HERR(source) (fprintf(stderr,"%s(%d) at %s:%d\n",source,h_errno,__FILE__,__LINE__),\
 		     exit(EXIT_FAILURE))
 #define CHUNKSIZE 576
+#define FILENAME 50
+
 
 #define ERRSTRING "No such file or directory\n"
+#define DOWNLOADRESPONSESUCCES "Registered request to downolad file"
 
-typedef enum {REGISTER} task_type;
+typedef enum {REGISTER = 1, DOWNOLAD, UPLOAD, DELETE, LIST, DOWNOLADRESPONSE, UPLOADROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR} task_type;
 
 
 volatile sig_atomic_t work = 1;
+volatile sig_atomic_t id = 0;
 
 
 /*
@@ -81,6 +86,17 @@ void convert_int_to_char_array(int argument, char* buf)
 	fprintf(stderr, "Converted data %s \n", buf);
 }
 
+
+void put_id_to_message(char* buf)
+{
+    int i;  
+    id = id+1;
+    for(i = sizeof(int)/sizeof(char); i < 2*sizeof(int)/sizeof(char); i++) 
+    { 
+	buf[i] = ((char*)&id)[i];  
+    }
+    fprintf(stderr, "put id %d to message \n", id);
+}
 
 task_type check_message_type(char * buf)
 {
@@ -326,6 +342,49 @@ void generate_register_message(char* message)
 	convert_int_to_char_array(type, message);
 }
 
+void generate_downolad_response_message(char* message)
+{
+	int type = (int)DOWNOLADRESPONSE;
+	memset(message, 0, CHUNKSIZE);
+	convert_int_to_char_array(type, message);
+	put_id_to_message(message);
+	strcpy(message + sizeof(int)/sizeof(char), DOWNLOADRESPONSESUCCES);
+}
+
+
+/*void convert_message_to_file_path(char* message, char* filepath)
+{
+    int i = 4;
+    for(i = 4; i < FILENAME + 4; i++)
+    {
+	filepath[i-4] = message[i];
+    }
+}
+
+
+
+void readfile(char* messagein, char* messageout)
+{
+	int fd;
+	char filepath[FILENAME];
+	convert_message_to_file_path(messagein, filepath);
+	
+	if ((fd = TEMP_FAILURE_RETRY(open(filepath, O_RDONLY))) == -1)
+	{
+		fprintf(stderr, "Could not open file %s \n", filepath);
+		size = strlen(ERRSTRING) + 1;
+	}
+	else
+	{
+		memset(buffer, 0x00, CHUNKSIZE);
+		if ((size = bulk_read(fd, buffer, CHUNKSIZE)) == -1)
+			ERR("read");
+	}
+	if (TEMP_FAILURE_RETRY(sendto(clientfd, buffer, CHUNKSIZE, 0, &addr, sizeof(addr))) < 0 && errno != EPIPE)
+		ERR("write");
+
+}
+*/
 
 int main(int argc, char **argv)
 {
@@ -336,8 +395,9 @@ int main(int argc, char **argv)
 	/*
 	 * socket for sending and reciving data from specified address
 	 */
-	int socket;
-	
+	int socket,listener;
+	task_type task;
+
 	char message[CHUNKSIZE];
 		
 	if (argc!=2)
@@ -348,7 +408,7 @@ int main(int argc, char **argv)
 	
 	my_endpoint_listening_addr = make_address(NULL, atoi(argv[1]), 0);
 	socket = connect_socket(1, my_endpoint_listening_addr);
-
+	listener = connect_socket(0,my_endpoint_listening_addr);
 	while(work)
 	{
 	    if(receive_message(socket, &my_endpoint_listening_addr, message) < 0)
@@ -357,7 +417,8 @@ int main(int argc, char **argv)
 	    }
 	    else
 	    {
-		if(check_message_type(message) == REGISTER)
+		task = check_message_type(message);
+		if(task == REGISTER)
 		{
 		    generate_register_message(message);
 		    if(send_message(socket, my_endpoint_listening_addr, message) < 0)
@@ -365,6 +426,40 @@ int main(int argc, char **argv)
 		      ERR("SEND REGISTER");
 		    }
 		}
+		else if(task == DOWNOLAD)
+		{
+		    generate_downolad_response_message(message);
+		    if(send_message(socket, my_endpoint_listening_addr, message) < 0)
+		    {
+		      ERR("SEND REGISTER");
+		    }
+		}
+		
+	    }
+	    if(receive_message(listener, &my_endpoint_listening_addr, message) < 0)
+	    {
+	       perror("Receiving message \n");
+	    }
+	    else
+	    {
+		task = check_message_type(message);
+		if(task == REGISTER)
+		{
+		    generate_register_message(message);
+		    if(send_message(listener, my_endpoint_listening_addr, message) < 0)
+		    {
+		      ERR("SEND REGISTER");
+		    }
+		}
+		else if(task == DOWNOLAD)
+		{
+		    generate_downolad_response_message(message);
+		    if(send_message(listener, my_endpoint_listening_addr, message) < 0)
+		    {
+		      ERR("SEND REGISTER");
+		    }
+		}
+		
 	    }
 	}
 

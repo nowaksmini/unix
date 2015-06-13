@@ -18,9 +18,16 @@
 #define HERR(source) (fprintf(stderr,"%s(%d) at %s:%d\n",source,h_errno,__FILE__,__LINE__),\
 		     exit(EXIT_FAILURE))
 
+#define DOWNLOADSTRING "download"
+#define UPLOADSTRING "upload"
+#define DELETESTRING "remove"
+#define LISTSTRING "list"
+
+
+#define FILENAME 50		     
 #define CHUNKSIZE 576
 
-typedef enum {REGISTER} task_type;
+typedef enum {REGISTER = 1, DOWNLOAD, UPLOAD, DELETE, LIST, DOWNOLADRESPONSE, UPLOADDROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR} task_type;
 
 
 volatile sig_atomic_t work = 1;
@@ -328,7 +335,60 @@ void generate_register_message(char* message)
 	convert_int_to_char_array(type, message);
 }
 
+void generate_request_download_message(char* message, char* filepath)
+{
+	int type = (int)DOWNLOAD;
+	memset(message, 0, CHUNKSIZE);
+	convert_int_to_char_array(type, message);
+	strcpy(message + sizeof(int)/sizeof(char), filepath);
+}
 
+task_type get_task_type_from_input(char * message)
+{
+    int t = message[0];
+    if(t == 'd')
+      return DOWNLOAD;
+    if(t == 'l')
+      return LIST;
+    if(t == 'r')
+      return DELETE;
+    if(t == 'u')
+      return UPLOAD;
+    return ERROR;
+}
+
+void do_work(int socket, struct sockaddr_in server_addr)
+{
+    int max = 9 + FILENAME;
+    task_type task;
+    char message[max];
+    char filepath[FILENAME];
+    char request[20];
+    char message_to_send[CHUNKSIZE];
+    while(work)
+    {
+	fgets(message, max, stdin);
+	task = get_task_type_from_input(message);
+	if(task == DOWNLOAD)
+	{
+	    if(sscanf(message, "%s %s", request, filepath) == EOF)
+	    {
+		fprintf(stderr, "PROBLEM WITH SSCANF");
+	    }
+	    else
+	    {	
+	        fprintf(stderr, "Got type %s \n", request);
+		fprintf(stderr, "Got file %s  \n", filepath);
+		generate_request_download_message(message_to_send, filepath);
+		if(send_message(socket, server_addr, message_to_send) < 0)
+		{	
+		   ERR("SEND");
+		}
+		fprintf(stderr," message to send %s  \n", message_to_send);
+	    }
+	}
+    }
+}
 
 int main(int argc, char **argv)
 {
@@ -373,6 +433,8 @@ int main(int argc, char **argv)
 	{
 	  ERR("RECEIVE");
 	}
+	
+	do_work(socket, server_addr);
 	
 	return EXIT_SUCCESS;
 }
