@@ -21,11 +21,21 @@
 #define CHUNKSIZE 576
 #define FILENAME 50
 
+#define DOWNLOADSTRING "download"
+#define UPLOADSTRING "upload"
+#define DELETESTRING "remove"
+#define LISTSTRING "list"
+#define REGISTERSTRING "register"
+#define REGISTERRESPONSESTRING "register response"
+#define DOWNLOADRESPONSESTRING "download response"
+#define UPLOADRESPONSESTRING "upload response"
+#define DELETERESPONSESTRING "delete response"
+#define ERRORSTRING "error"
 
 #define ERRSTRING "No such file or directory\n"
 #define DOWNLOADRESPONSESUCCES "Registered request to downolad file"
 
-typedef enum {REGISTER = 1, DOWNOLAD, UPLOAD, DELETE, LIST, DOWNOLADRESPONSE, UPLOADROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR} task_type;
+typedef enum {REGISTER, DOWNOLAD, UPLOAD, DELETE, LIST, DOWNOLADRESPONSE, UPLOADROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR} task_type;
 
 
 volatile sig_atomic_t work = 1;
@@ -100,6 +110,7 @@ void put_id_to_message(char* buf)
 
 task_type check_message_type(char * buf)
 {
+	fprintf(stderr, "Checking task type \n");
 	int i,type = 0; 
 	for(i = 0; i < sizeof(int)/sizeof(char); i++) 
 	{
@@ -289,9 +300,9 @@ int connect_socket(int broadcastEnable, struct sockaddr_in address)
 /*
  * sending message
  */
-int send_message (int socket, struct sockaddr_in client_addr, char* message)
+int send_message (int socket, struct sockaddr_in client_addr, char* message, char* message_type)
 {
-  fprintf(stderr, "Trying to sent message %s \n", message);
+  fprintf(stderr, "Trying to sent message %s \n", message_type);
   /*
    * int sockfd, const void *buf, size_t len, int flags,
                const struct sockaddr *dest_addr, socklen_t addrlen);
@@ -301,13 +312,13 @@ int send_message (int socket, struct sockaddr_in client_addr, char* message)
     /*
      * failure
      */
-    fprintf(stderr, "Sending message %s failed \n", message);
+    fprintf(stderr, "Sending message %s failed \n", message_type);
     return -1;
   }
   /*
    * success
    */
-  fprintf(stderr, "Sending message %s succeeded \n", message);
+  fprintf(stderr, "Sending message %s succeeded \n", message_type);
   return 0;
 }
 
@@ -316,21 +327,32 @@ int send_message (int socket, struct sockaddr_in client_addr, char* message)
  */
 int receive_message (int socket, struct sockaddr_in* received_client_addr, char* message)
 {
-	fprintf(stderr, "Trying to receive message \n");
+	task_type task;
+	char * message_type = ERRORSTRING;
+	fprintf(stderr, "Trying to receive message\n");
 	/*
 	* int sockfd, const void *buf, size_t len, int flags,
 		    const struct sockaddr *dest_addr, socklen_t addrlen);
 	*/
 	socklen_t size = sizeof(struct sockaddr_in);
-	if(TEMP_FAILURE_RETRY(recvfrom(socket, message, CHUNKSIZE, 0, received_client_addr, &size)) < 0)
+	if(recvfrom(socket, message, CHUNKSIZE, 0, received_client_addr, &size) < 0)
 	{
-	      fprintf(stderr, "Failed receving message \n");
+	      fprintf(stderr, "Failed receving message\n");
 	      return -1;
 	}
 	/*
 	* success
 	*/
-	fprintf(stderr, "Received message %s succeeded \n", message);
+	task = check_message_type(message);
+	if(task == REGISTER)
+	{
+	    message_type = REGISTERSTRING;
+	}
+	else if(task == DOWNOLAD)
+	{
+	    message_type = DOWNLOADSTRING;
+	}
+	fprintf(stderr, "Received message %s succeeded\n", message_type);
 	return 0;
 }
 
@@ -421,22 +443,22 @@ int main(int argc, char **argv)
 		if(task == REGISTER)
 		{
 		    generate_register_message(message);
-		    if(send_message(socket, my_endpoint_listening_addr, message) < 0)
+		    if(send_message(socket, my_endpoint_listening_addr, message, REGISTERRESPONSESTRING) < 0)
 		    {
-		      ERR("SEND REGISTER");
+		      ERR("SEND REGISTERRESPONSE");
 		    }
 		}
 		else if(task == DOWNOLAD)
 		{
 		    generate_downolad_response_message(message);
-		    if(send_message(socket, my_endpoint_listening_addr, message) < 0)
+		    if(send_message(socket, my_endpoint_listening_addr, message, DOWNLOADRESPONSESTRING) < 0)
 		    {
-		      ERR("SEND REGISTER");
+		      ERR("SEND DOWNLOADRESPONSE");
 		    }
 		}
 		
 	    }
-	    if(receive_message(listener, &my_endpoint_listening_addr, message) < 0)
+	    /*if(receive_message(listener, &my_endpoint_listening_addr, message) < 0)
 	    {
 	       perror("Receiving message \n");
 	    }
@@ -460,7 +482,7 @@ int main(int argc, char **argv)
 		    }
 		}
 		
-	    }
+	    }*/
 	}
 
 	return EXIT_SUCCESS;

@@ -22,12 +22,18 @@
 #define UPLOADSTRING "upload"
 #define DELETESTRING "remove"
 #define LISTSTRING "list"
+#define REGISTERSTRING "register"
+#define REGISTERRESPONSESTRING "register response"
+#define DOWNLOADRESPONSESTRING "download response"
+#define UPLOADRESPONSESTRING "upload response"
+#define DELETERESPONSESTRING "delete response"
+#define ERRORSTRING "error"
 
 
 #define FILENAME 50		     
 #define CHUNKSIZE 576
 
-typedef enum {REGISTER = 1, DOWNLOAD, UPLOAD, DELETE, LIST, DOWNOLADRESPONSE, UPLOADDROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR} task_type;
+typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, DOWNOLADRESPONSE, UPLOADDROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR} task_type;
 
 
 volatile sig_atomic_t work = 1;
@@ -78,6 +84,20 @@ void sethandler(void (*f)(int), int sigNo)
 	 */
 	if (-1 == sigaction(sigNo, &act, NULL))
 		ERR("sigaction");
+}
+
+task_type get_task_type_from_input(char * message)
+{
+    int t = message[0];
+    if(t == 'd')
+      return DOWNLOAD;
+    if(t == 'l')
+      return LIST;
+    if(t == 'r')
+      return DELETE;
+    if(t == 'u')
+      return UPLOAD;
+    return ERROR;
 }
 
 /*
@@ -170,6 +190,18 @@ ssize_t bulk_write(int fd, char *buf, size_t count)
 	return len;
 }
 
+task_type check_message_type(char * buf)
+{
+	fprintf(stderr, "Checking task type \n");
+	int i,type = 0; 
+	for(i = 0; i < sizeof(int)/sizeof(char); i++) 
+	{
+	    ((char*)&type)[i] = buf[i]; 
+	} 
+	return (task_type)(type); 
+}
+
+
 /*
  * create socket, connection
  * if bradcastenable == 1 than should broadcast
@@ -261,9 +293,9 @@ int connect_socket(int broadcastEnable, struct sockaddr_in address)
 /*
  * sending message
  */
-int send_message (int socket, struct sockaddr_in server_addr, char* message)
+int send_message (int socket, struct sockaddr_in server_addr, char* message, char* message_type)
 {
-  fprintf(stderr, "Trying to sent message %s \n", message);
+  fprintf(stderr, "Trying to sent message %s \n", message_type);
   /*
    * int sockfd, const void *buf, size_t len, int flags,
                const struct sockaddr *dest_addr, socklen_t addrlen);
@@ -273,13 +305,13 @@ int send_message (int socket, struct sockaddr_in server_addr, char* message)
     /*
      * failure
      */
-    fprintf(stderr, "Sending message %s failed \n", message);
+    fprintf(stderr, "Sending message %s failed \n", message_type);
     return -1;
   }
   /*
    * success
    */
-  fprintf(stderr, "Sending message %s succeeded \n", message);
+  fprintf(stderr, "Sending message %s succeeded \n", message_type);
   return 0;
 }
 
@@ -288,13 +320,15 @@ int send_message (int socket, struct sockaddr_in server_addr, char* message)
  */
 int receive_message (int socket, struct sockaddr_in* received_server_addr, char* message)
 {
+  task_type task;
+  char * message_type = ERRORSTRING;
   fprintf(stderr, "Trying to receive message \n");
   /*
    * int sockfd, const void *buf, size_t len, int flags,
                const struct sockaddr *dest_addr, socklen_t addrlen);
    */
   socklen_t size = sizeof(struct sockaddr_in);
-  while(recvfrom(socket, message, CHUNKSIZE, 0, received_server_addr, &size) < 0)
+  if(recvfrom(socket, message, CHUNKSIZE, 0, received_server_addr, &size) < 0)
 	{
 	      if(EINTR != errno)
 	      {
@@ -304,13 +338,22 @@ int receive_message (int socket, struct sockaddr_in* received_server_addr, char*
 	      if(SIGALRM == last_signal)
 	      {
 		  fprintf(stderr, "SIG ALARM \n");
-		  break;
+		  return -1;
 	      }
 	}
   /*
    * success
    */
-  fprintf(stderr, "Received message %s succeeded \n", message);
+  task = check_message_type(message);
+  if(task == REGISTER)
+  {
+    message_type = REGISTERRESPONSESTRING;
+  }
+  else if(task == DOWNLOAD)
+  {
+    message_type = DOWNLOADRESPONSESTRING;
+  }
+  fprintf(stderr, "Received message %s succeeded\n", message_type);
   return 0;
 }
 
@@ -343,49 +386,42 @@ void generate_request_download_message(char* message, char* filepath)
 	strcpy(message + sizeof(int)/sizeof(char), filepath);
 }
 
-task_type get_task_type_from_input(char * message)
-{
-    int t = message[0];
-    if(t == 'd')
-      return DOWNLOAD;
-    if(t == 'l')
-      return LIST;
-    if(t == 'r')
-      return DELETE;
-    if(t == 'u')
-      return UPLOAD;
-    return ERROR;
-}
 
 void do_work(int socket, struct sockaddr_in server_addr)
 {
     int max = 9 + FILENAME;
     task_type task;
-    char message[max];
+    char input_message[max];
     char filepath[FILENAME];
     char request[20];
     char message_to_send[CHUNKSIZE];
+    char message_received[CHUNKSIZE];
     while(work)
     {
-	fgets(message, max, stdin);
-	task = get_task_type_from_input(message);
+	fgets(input_message, max, stdin);
+	task = get_task_type_from_input(input_message);
 	if(task == DOWNLOAD)
 	{
-	    if(sscanf(message, "%s %s", request, filepath) == EOF)
+	    if(sscanf(input_message, "%s %s", request, filepath) == EOF)
 	    {
 		fprintf(stderr, "PROBLEM WITH SSCANF");
 	    }
 	    else
 	    {	
-	        fprintf(stderr, "Got type %s \n", request);
-		fprintf(stderr, "Got file %s  \n", filepath);
+	        fprintf(stderr, "Got task type %s \n", request);
+		fprintf(stderr, "Got file name %s  \n", filepath);
 		generate_request_download_message(message_to_send, filepath);
-		if(send_message(socket, server_addr, message_to_send) < 0)
+		if(send_message(socket, server_addr, message_to_send, DOWNLOADSTRING) < 0)
 		{	
 		   ERR("SEND");
 		}
-		fprintf(stderr," message to send %s  \n", message_to_send);
+		else
+		  sleep(3);
 	    }
+	}
+	if(receive_message(socket, &server_addr, message_received) < 0)
+	{
+	   perror("Receiving message \n");
 	}
     }
 }
@@ -424,11 +460,11 @@ int main(int argc, char **argv)
 	socket = connect_socket(0, my_endpoint_listening_addr);
 	broadcast_adrr = make_address(NULL, atoi(argv[1]), 1);
 	
-	if(send_message(broadcastsocket, broadcast_adrr, message) < 0)
+	if(send_message(broadcastsocket, broadcast_adrr, message, REGISTERSTRING) < 0)
 	{
 	  ERR("SEND");
 	}
-		
+	sleep(3);	
 	if(receive_message(socket, &server_addr, message) < 0)
 	{
 	  ERR("RECEIVE");
