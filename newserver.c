@@ -385,12 +385,13 @@ void readfile(char* messagein, char* messageout)
 }
 */
 
+
 int main(int argc, char **argv)
 {
 	/*
 	 * my_endpoint_listening_addr - adress for listening from everybody
 	 */
-	struct sockaddr_in  my_endpoint_listening_addr;
+	struct sockaddr_in  my_endpoint_listening_addr, client_addr;
 	/*
 	 * socket for sending and reciving data from specified address
 	 */
@@ -406,10 +407,12 @@ int main(int argc, char **argv)
 	sethandler(siginthandler, SIGINT);
 	
 	my_endpoint_listening_addr = make_address(atoi(argv[1]));
+	
 	socket = connect_socket(my_endpoint_listening_addr);
+	
 	while(work)
 	{
-	    if(receive_message(socket, &my_endpoint_listening_addr, message) < 0)
+	    if(receive_message(socket, &client_addr, message) < 0)
 	    {
 	       perror("Receiving message \n");
 	    }
@@ -419,7 +422,7 @@ int main(int argc, char **argv)
 		if(task == REGISTER)
 		{
 		    generate_register_message(message);
-		    if(send_message(socket, my_endpoint_listening_addr, message, REGISTERRESPONSESTRING) < 0)
+		    if(send_message(socket, client_addr, message, REGISTERRESPONSESTRING) < 0)
 		    {
 		      ERR("SEND REGISTERRESPONSE");
 		    }
@@ -427,15 +430,20 @@ int main(int argc, char **argv)
 		else if(task == DOWNLOAD)
 		{
 		    generate_downolad_response_message(message);
-		    if(send_message(socket, my_endpoint_listening_addr, message, DOWNLOADRESPONSESTRING) < 0)
+		    if(send_message(socket, client_addr, message, DOWNLOADRESPONSESTRING) < 0)
 		    {
 		      ERR("SEND DOWNLOADRESPONSE");
 		    }
+		}
+		else
+		{
+		    fprintf(stderr, "Else : %s \n", message + sizeof(int)/sizeof(char));
 		}
 	    }
 	}
 	if(TEMP_FAILURE_RETRY(close(socket)) < 0)
 	  ERR("CLOSE");
+	
 	fprintf(stderr,"Server has terminated.\n");
 
 	return EXIT_SUCCESS;

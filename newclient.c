@@ -486,6 +486,7 @@ int main(int argc, char **argv)
 	}
 	
 	do_work(socket, server_addr);
+	
 	if(TEMP_FAILURE_RETRY(close(socket)) < 0)
 	  ERR("CLOSE");
 	fprintf(stderr,"Server has terminated.\n");
