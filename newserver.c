@@ -270,6 +270,7 @@ int connect_socket( struct sockaddr_in address)
  */
 int send_message (int socket, struct sockaddr_in client_addr, char* message, char* message_type)
 {
+  char tmp[1000];
   fprintf(stderr, "Trying to sent message %s \n", message_type);
   /*
    * int sockfd, const void *buf, size_t len, int flags,
@@ -287,6 +288,8 @@ int send_message (int socket, struct sockaddr_in client_addr, char* message, cha
    * success
    */
   fprintf(stderr, "Sending message %s succeeded \n", message_type);
+  strcpy(tmp, message + sizeof(int)/sizeof(char));
+  fprintf(stderr, "Real message send =  %s  \n", tmp);
   return 0;
 }
 
@@ -325,7 +328,7 @@ int receive_message (int socket, struct sockaddr_in* received_client_addr, char*
 	  return -1;
 	fprintf(stderr, "Received message %s succeeded\n", message_type);
 	strcpy(tmp, message + sizeof(int)/sizeof(char));
-	fprintf(stderr, "Real message received %s \n", tmp);
+	fprintf(stderr, "Real message received = %s \n", tmp);
 	return 0;
 }
 

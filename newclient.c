@@ -30,7 +30,7 @@
 #define ERRORSTRING "error"
 #define NOACTIONSTRING "no action"
  
-#define CLIENTREQUESTS "client requests"
+#define CLIENTREQUESTS "Client requests registration"
 #define FILENAME 50		     
 #define CHUNKSIZE 576
 
@@ -296,6 +296,7 @@ int connect_socket(int broadcastEnable, struct sockaddr_in address)
  */
 int send_message (int socket, struct sockaddr_in server_addr, char* message, char* message_type)
 {
+  char tmp[1000];
   fprintf(stderr, "Trying to sent message %s \n", message_type);
   /*
    * int sockfd, const void *buf, size_t len, int flags,
@@ -313,13 +314,15 @@ int send_message (int socket, struct sockaddr_in server_addr, char* message, cha
    * success
    */
   fprintf(stderr, "Sending message %s succeeded \n", message_type);
+  strcpy(tmp, message + sizeof(int)/sizeof(char));
+  fprintf(stderr, "Real message send =  %s  \n", tmp);
   return 0;
 }
 
 /*
  * receiving message
  */
-int receive_message (int socket, struct sockaddr_in* received_server_addr, char* message)
+task_type receive_message (int socket, struct sockaddr_in* received_server_addr, char* message)
 {
   task_type task = NONE;
   char * message_type = NOACTIONSTRING;
@@ -335,12 +338,12 @@ int receive_message (int socket, struct sockaddr_in* received_server_addr, char*
 	      if(EINTR != errno)
 	      {
 		 fprintf(stderr, "Failed receving message \n");
-		 return -1;
+		 return ERROR;
 	      }
 	      if(SIGALRM == last_signal)
 	      {
 		  fprintf(stderr, "SIG ALARM \n");
-		  return -1;
+		  return ERROR;
 	      }
 	}
   /*
@@ -356,9 +359,9 @@ int receive_message (int socket, struct sockaddr_in* received_server_addr, char*
     message_type = DOWNLOADRESPONSESTRING;
   }
   strcpy(tmp, message + sizeof(int)/sizeof(char));
-  fprintf(stderr, "real message received %s \n", tmp);
+  fprintf(stderr, "Real message received = %s \n", tmp);
   fprintf(stderr, "Received message %s succeeded\n", message_type);
-  return 0;
+  return task;
 }
 
 /*
@@ -424,7 +427,7 @@ void do_work(int socket, struct sockaddr_in server_addr)
 		  sleep(3);
 	    }
 	}
-	if(receive_message(socket, &server_addr, message_received) < 0)
+	if(receive_message(socket, &server_addr, message_received) == ERROR)
 	{
 	   perror("Receiving message \n");
 	}
@@ -447,6 +450,7 @@ int main(int argc, char **argv)
 	 * socket for sending broadcast
 	 */	
 	int broadcastsocket;
+	task_type task = NONE;
 	char message[CHUNKSIZE];
 	
 	generate_register_message(message);
@@ -474,9 +478,11 @@ int main(int argc, char **argv)
 	  ERR("CLOSE");
 	
 	sleep(3);
-	if(receive_message(socket, &server_addr, message) < 0)
+	while(task != REGISTERRESPONSE)
 	{
-	  ERR("RECEIVE");
+	  task = receive_message(socket, &server_addr, message);
+	  if(task == ERROR)
+	    ERR("RECEIVE");
 	}
 	
 	do_work(socket, server_addr);
