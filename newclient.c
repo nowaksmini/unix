@@ -28,12 +28,14 @@
 #define UPLOADRESPONSESTRING "upload response"
 #define DELETERESPONSESTRING "delete response"
 #define ERRORSTRING "error"
-
-
+#define NOACTIONSTRING "no action"
+ 
+#define CLIENTREQUESTS "client requests"
 #define FILENAME 50		     
 #define CHUNKSIZE 576
 
-typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, DOWNOLADRESPONSE, UPLOADDROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR} task_type;
+typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNOLADRESPONSE, 
+  UPLOADDROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR, NONE} task_type;
 
 
 volatile sig_atomic_t work = 1;
@@ -211,11 +213,10 @@ int make_socket(int broadcastEnable)
 	int sock;
 	int t = 1;
 	/*
-	 * AF_INET - connection through internet
 	 * SOC_DGRAM - udp connection
 	 * 0 - default protocol for UDP
 	 */
-	sock = socket(AF_INET, SOCK_DGRAM, 0);
+	sock = socket(PF_INET, SOCK_DGRAM, 0);
 	if (sock < 0)
 		ERR("socket");
 	/*
@@ -320,8 +321,9 @@ int send_message (int socket, struct sockaddr_in server_addr, char* message, cha
  */
 int receive_message (int socket, struct sockaddr_in* received_server_addr, char* message)
 {
-  task_type task;
-  char * message_type = ERRORSTRING;
+  task_type task = NONE;
+  char * message_type = NOACTIONSTRING;
+  char tmp[1000];
   fprintf(stderr, "Trying to receive message \n");
   /*
    * int sockfd, const void *buf, size_t len, int flags,
@@ -345,14 +347,16 @@ int receive_message (int socket, struct sockaddr_in* received_server_addr, char*
    * success
    */
   task = check_message_type(message);
-  if(task == REGISTER)
+  if(task == REGISTERRESPONSE)
   {
     message_type = REGISTERRESPONSESTRING;
   }
-  else if(task == DOWNLOAD)
+  else if(task == DOWNOLADRESPONSE)
   {
     message_type = DOWNLOADRESPONSESTRING;
   }
+  strcpy(tmp, message + sizeof(int)/sizeof(char));
+  fprintf(stderr, "real message received %s \n", tmp);
   fprintf(stderr, "Received message %s succeeded\n", message_type);
   return 0;
 }
@@ -376,6 +380,7 @@ void generate_register_message(char* message)
 	int type = (int)REGISTER;
 	memset(message, 0, CHUNKSIZE);
 	convert_int_to_char_array(type, message);
+	strcpy(message + sizeof(int)/sizeof(char), CLIENTREQUESTS);
 }
 
 void generate_request_download_message(char* message, char* filepath)
@@ -464,14 +469,21 @@ int main(int argc, char **argv)
 	{
 	  ERR("SEND");
 	}
-	sleep(3);	
+	
+	if(TEMP_FAILURE_RETRY(close(broadcastsocket)) < 0)
+	  ERR("CLOSE");
+	
+	sleep(3);
 	if(receive_message(socket, &server_addr, message) < 0)
 	{
 	  ERR("RECEIVE");
 	}
 	
 	do_work(socket, server_addr);
-	
+	if(TEMP_FAILURE_RETRY(close(socket)) < 0)
+	  ERR("CLOSE");
+	fprintf(stderr,"Server has terminated.\n");
+
 	return EXIT_SUCCESS;
 }
 

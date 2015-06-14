@@ -31,12 +31,16 @@
 #define UPLOADRESPONSESTRING "upload response"
 #define DELETERESPONSESTRING "delete response"
 #define ERRORSTRING "error"
+#define NOACTIONSTRING "no action"
+
 
 #define ERRSTRING "No such file or directory\n"
-#define DOWNLOADRESPONSESUCCES "Registered request to downolad file"
+#define DOWNLOADRESPONSESUCCES "Registered request to downolad file successfully"
+#define REGISTERRESPONSESUCCES "Registered client successfully"
 
-typedef enum {REGISTER, DOWNOLAD, UPLOAD, DELETE, LIST, DOWNOLADRESPONSE, UPLOADROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR} task_type;
 
+typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNOLADRESPONSE, 
+  UPLOADDROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR, NONE} task_type;
 
 volatile sig_atomic_t work = 1;
 volatile sig_atomic_t id = 0;
@@ -211,9 +215,8 @@ ssize_t bulk_write(int fd, char *buf, size_t count)
 
 /*
  * create socket, connection
- * if bradcastenable == 1 than should broadcast
  */
-int make_socket(int broadcastEnable)
+int make_socket()
 {
 	int t = 1;
 	int sock;
@@ -222,7 +225,7 @@ int make_socket(int broadcastEnable)
 	 * SOC_DGRAM - udp connection
 	 * 0 - default protocol for UDP
 	 */
-	sock = socket(AF_INET, SOCK_DGRAM, 0);
+	sock = socket(PF_INET, SOCK_DGRAM, 0);
 	if (sock < 0)
 		ERR("socket");
 	/*
@@ -230,72 +233,37 @@ int make_socket(int broadcastEnable)
 	 */
 	if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(t))) 
 	      ERR("setsockopt");
-	/*
-	 * set socket options
-	 * SOL_SOCKET - level of setting options, (socket)
-	 * SO_BROADCAST - cocket can receive and send for broadcast 
-	 * broadcastenable - set option for true
-	 */
-	if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable)))
-		ERR("setsockopt");
+	
 	return sock;
 }
 
 /*
  * create ip scructure from ip written in char array and port
- * if address null than address should be any
- * broadcast means if we should bradcast
  */
-struct sockaddr_in make_address(char *address, uint16_t port, int broadcast)
+struct sockaddr_in make_address(uint16_t port)
 {
 	struct sockaddr_in addr;
-	struct hostent *hostinfo;
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(port);
-	
-	if(address == NULL)
-	{
-	  if(broadcast == 0)
-	  {
-	    /*
-	    * receving from anybody
-	    */
-	    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	  }
-	  else
-	  {
-	    /*
-	     * sendidng data to whole subnet
-	     */
-	    addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-	  }
-	  
-	}
-	else
-	{
-	  /*
-	   * used for sending data to specified address
-	   */
-	  hostinfo = gethostbyname(address);
-	  if (hostinfo == NULL)
-		  HERR("gethostbyname");
-	  addr.sin_addr = *(struct in_addr*) hostinfo->h_addr;
-	}
-	
+	/*
+	* receving from anybody
+	*/
+	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	return addr;
 }
 
 /*
  * create socket and return new socket for address for listening
  */
-int connect_socket(int broadcastEnable, struct sockaddr_in address)
+int connect_socket( struct sockaddr_in address)
 {
 	int socketfd;
-	socketfd = make_socket(broadcastEnable);
+	socketfd = make_socket();
 	if(bind(socketfd, (struct sockaddr*) &address, sizeof(address)) < 0)
 	  ERR("bind");
 	return socketfd;
 }
+
 
 /*
  * sending message
@@ -329,13 +297,14 @@ int receive_message (int socket, struct sockaddr_in* received_client_addr, char*
 {
 	task_type task;
 	char * message_type = ERRORSTRING;
+	char tmp[1000];
 	fprintf(stderr, "Trying to receive message\n");
 	/*
 	* int sockfd, const void *buf, size_t len, int flags,
 		    const struct sockaddr *dest_addr, socklen_t addrlen);
 	*/
 	socklen_t size = sizeof(struct sockaddr_in);
-	if(recvfrom(socket, message, CHUNKSIZE, 0, received_client_addr, &size) < 0)
+	if(TEMP_FAILURE_RETRY(recvfrom(socket, message, CHUNKSIZE, 0, received_client_addr, &size)) < 0)
 	{
 	      fprintf(stderr, "Failed receving message\n");
 	      return -1;
@@ -348,20 +317,25 @@ int receive_message (int socket, struct sockaddr_in* received_client_addr, char*
 	{
 	    message_type = REGISTERSTRING;
 	}
-	else if(task == DOWNOLAD)
+	else if(task == DOWNLOAD)
 	{
 	    message_type = DOWNLOADSTRING;
 	}
+	else 
+	  return -1;
 	fprintf(stderr, "Received message %s succeeded\n", message_type);
+	strcpy(tmp, message + sizeof(int)/sizeof(char));
+	fprintf(stderr, "Real message received %s \n", tmp);
 	return 0;
 }
 
 
 void generate_register_message(char* message)
 {
-	int type = (int)REGISTER;
+	int type = (int)REGISTERRESPONSE;
 	memset(message, 0, CHUNKSIZE);
 	convert_int_to_char_array(type, message);
+	strcpy(message + sizeof(int)/sizeof(char), REGISTERRESPONSESUCCES);
 }
 
 void generate_downolad_response_message(char* message)
@@ -370,7 +344,7 @@ void generate_downolad_response_message(char* message)
 	memset(message, 0, CHUNKSIZE);
 	convert_int_to_char_array(type, message);
 	put_id_to_message(message);
-	strcpy(message + sizeof(int)/sizeof(char), DOWNLOADRESPONSESUCCES);
+	strcpy(message + 2*sizeof(int)/sizeof(char), DOWNLOADRESPONSESUCCES);
 }
 
 
@@ -417,7 +391,7 @@ int main(int argc, char **argv)
 	/*
 	 * socket for sending and reciving data from specified address
 	 */
-	int socket,listener;
+	int socket;
 	task_type task;
 
 	char message[CHUNKSIZE];
@@ -428,9 +402,8 @@ int main(int argc, char **argv)
 	sethandler(SIG_IGN, SIGPIPE);
 	sethandler(siginthandler, SIGINT);
 	
-	my_endpoint_listening_addr = make_address(NULL, atoi(argv[1]), 0);
-	socket = connect_socket(1, my_endpoint_listening_addr);
-	listener = connect_socket(0,my_endpoint_listening_addr);
+	my_endpoint_listening_addr = make_address(atoi(argv[1]));
+	socket = connect_socket(my_endpoint_listening_addr);
 	while(work)
 	{
 	    if(receive_message(socket, &my_endpoint_listening_addr, message) < 0)
@@ -448,7 +421,7 @@ int main(int argc, char **argv)
 		      ERR("SEND REGISTERRESPONSE");
 		    }
 		}
-		else if(task == DOWNOLAD)
+		else if(task == DOWNLOAD)
 		{
 		    generate_downolad_response_message(message);
 		    if(send_message(socket, my_endpoint_listening_addr, message, DOWNLOADRESPONSESTRING) < 0)
@@ -456,34 +429,11 @@ int main(int argc, char **argv)
 		      ERR("SEND DOWNLOADRESPONSE");
 		    }
 		}
-		
 	    }
-	    /*if(receive_message(listener, &my_endpoint_listening_addr, message) < 0)
-	    {
-	       perror("Receiving message \n");
-	    }
-	    else
-	    {
-		task = check_message_type(message);
-		if(task == REGISTER)
-		{
-		    generate_register_message(message);
-		    if(send_message(listener, my_endpoint_listening_addr, message) < 0)
-		    {
-		      ERR("SEND REGISTER");
-		    }
-		}
-		else if(task == DOWNOLAD)
-		{
-		    generate_downolad_response_message(message);
-		    if(send_message(listener, my_endpoint_listening_addr, message) < 0)
-		    {
-		      ERR("SEND REGISTER");
-		    }
-		}
-		
-	    }*/
 	}
+	if(TEMP_FAILURE_RETRY(close(socket)) < 0)
+	  ERR("CLOSE");
+	fprintf(stderr,"Server has terminated.\n");
 
 	return EXIT_SUCCESS;
 }
