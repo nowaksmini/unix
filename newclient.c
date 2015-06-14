@@ -27,9 +27,14 @@
 #define DOWNLOADRESPONSESTRING "download response"
 #define UPLOADRESPONSESTRING "upload response"
 #define DELETERESPONSESTRING "delete response"
+#define LISTRESPONSESTRING "list response"
 #define ERRORSTRING "error"
 #define NOACTIONSTRING "no action"
- 
+
+
+#define INSTRUCTION "\nINSTRUCTUIION\nOPTIONS\ndownload file_name\nupload file_name\ndelete file_name\nlist\n\n"
+#define RECEIVEDINMAINTHREAD "Received in main thread" 
+
 #define CLIENTREQUESTS "Client requests registration"
 #define FILENAME 50		     
 #define CHUNKSIZE 576
@@ -39,9 +44,14 @@ typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNOL
 
 
 volatile sig_atomic_t work = 1;
-volatile sig_atomic_t last_signal = 0 ;
 
-
+typedef struct
+{
+	int id;
+	int* socket;
+	struct sockaddr_in *server_addr;
+	pthread_mutex_t *mutex;
+} thread_arg;
 /*
  * function responsible for handling SIGINT signal 
  */
@@ -49,12 +59,6 @@ void siginthandler(int sig)
 {
 	work = 0;
 }
-
-void sigalrm_handler(int sig) 
-{
-	last_signal = sig;
-}
-
 
 /*
  * inform user about running program
@@ -101,6 +105,7 @@ task_type get_task_type_from_input(char * message)
       return UPLOAD;
     return ERROR;
 }
+
 
 /*
  * buf - memory to write data read from file, must be allocated for minimum count size
@@ -203,6 +208,257 @@ task_type check_message_type(char * buf)
 	return (task_type)(type); 
 }
 
+/*
+ * write first four bytesto array
+ */
+void convert_int_to_char_array(int argument, char* buf)
+{
+	int i;
+	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++) 
+	{ 
+	    buf[i] = ((char*)&argument)[i];  
+	}
+	fprintf(stderr, "Converted data %s \n", buf);
+}
+
+
+void generate_register_message(char* message)
+{
+	int type = (int)REGISTER;
+	memset(message, 0, CHUNKSIZE);
+	convert_int_to_char_array(type, message);
+	strcpy(message + sizeof(int)/sizeof(char), CLIENTREQUESTS);
+}
+
+
+void generate_request_download_message(char* message, char* filepath)
+{
+	int type = (int)DOWNLOAD;
+	memset(message, 0, CHUNKSIZE);
+	convert_int_to_char_array(type, message);
+	strcpy(message + sizeof(int)/sizeof(char), filepath);
+}
+
+
+/*
+ * sending message
+ */
+int send_message (int socket, struct sockaddr_in server_addr, char* message, char* message_type)
+{
+	char tmp[1000];
+	fprintf(stderr, "Trying to sent message %s \n", message_type);
+	/*
+	* int sockfd, const void *buf, size_t len, int flags,
+		    const struct sockaddr *dest_addr, socklen_t addrlen);
+	*/
+	if(TEMP_FAILURE_RETRY(sendto(socket, message, CHUNKSIZE, 0, &server_addr, sizeof(struct sockaddr_in))) < 0)
+	{
+	  /*
+	  * failure
+	  */
+	  fprintf(stderr, "Sending message %s failed \n", message_type);
+	  return -1;
+	}
+	/*
+	* success
+	*/
+	fprintf(stderr, "Sending message %s succeeded \n", message_type);
+	strcpy(tmp, message + sizeof(int)/sizeof(char));
+	fprintf(stderr, "Real message send =  %s  \n", tmp);
+	return 0;
+}
+
+/*
+ * receiving message
+ */
+task_type receive_message (int socket, struct sockaddr_in* received_server_addr, char* message)
+{
+	task_type task = NONE;
+	char * message_type = NOACTIONSTRING;
+	char tmp[CHUNKSIZE];
+	fprintf(stderr, "\n Trying to receive message \n");
+	
+	/*
+	* int sockfd, const void *buf, size_t len, int flags,
+		    const struct sockaddr *dest_addr, socklen_t addrlen);
+	*/
+	socklen_t size = sizeof(struct sockaddr_in);
+	if(recvfrom(socket, message, CHUNKSIZE, 0, received_server_addr, &size) < 0)
+	{
+	  if(EINTR != errno)
+	  {
+	    fprintf(stderr, "Failed receving message \n");
+	    return ERROR;
+	  }
+	}
+	/*
+	* success
+	*/
+	fprintf(stderr, "Preparing for parcing received message \n");
+	task = check_message_type(message);
+	if(task == REGISTERRESPONSE)
+	{
+	  message_type = REGISTERRESPONSESTRING;
+	}
+	else if(task == DOWNOLADRESPONSE)
+	{
+	  message_type = DOWNLOADRESPONSESTRING;
+	}
+	else if(task == DELETERESPONSE)
+	{
+	  message_type = DELETERESPONSESTRING;
+	}
+	else if(task == UPLOADDROSPONSE)
+	{
+	  message_type = UPLOADRESPONSESTRING;
+	}
+	strcpy(tmp, message + sizeof(int)/sizeof(char));
+	fprintf(stderr, "Real message received = %s \n", tmp);
+	fprintf(stderr, "Received message %s succeeded\n", message_type);
+	return task;
+}
+
+void cleanup(void *arg)
+{
+	pthread_mutex_unlock((pthread_mutex_t *)arg);
+}
+
+/*
+ * thread function for listening  anything from 
+ */
+void server_listening_work(int socket, struct sockaddr_in server_addr)
+{
+	task_type task = NONE;
+	char message_received[CHUNKSIZE];
+	task = receive_message(socket, &server_addr, message_received);
+	if(task == ERROR)
+	{
+	   perror("Receiving message ");
+	}
+	else if(task == DELETERESPONSE)
+	{
+	    fprintf(stderr, "%s: %s", RECEIVEDINMAINTHREAD, DELETERESPONSESTRING);
+	    /*
+	     * Open new thera with given task id, wait inside for DELETE message
+	     */
+	}
+	else if(task == UPLOADDROSPONSE)
+	{
+	    fprintf(stderr, "%s : %s", RECEIVEDINMAINTHREAD, UPLOADRESPONSESTRING);
+	}
+	else if(task == DOWNOLADRESPONSE)
+	{
+	    fprintf(stderr, "%s : %s", RECEIVEDINMAINTHREAD, DOWNLOADRESPONSESTRING);
+	}
+	else if(task == LISTRESPONSE)
+	{
+	    fprintf(stderr, "%s : %s", RECEIVEDINMAINTHREAD, LISTRESPONSESTRING);
+	}
+	/*
+	 * for task UPLOAD, DELETE, LIST, UPDATE push message to global queue and threads will know what to do
+	 */
+    
+}
+
+/*
+ * thread function for listening  anything from 
+ */
+void input_listening_work(int socket, struct sockaddr_in server_addr)
+{
+	task_type task = NONE;
+	int max = 9 + FILENAME;
+	char input_message[max];
+	char filepath[FILENAME];
+	char request[20];
+	char message_to_send[CHUNKSIZE];
+	  
+	/*
+	 * part responsible for listening from input
+	 */
+	fgets(input_message, max, stdin);
+	task = get_task_type_from_input(input_message);
+	if(task == DOWNLOAD)
+	{
+	    if(sscanf(input_message, "%s %s", request, filepath) == EOF)
+	    {
+		fprintf(stderr, "PROBLEM WITH SSCANF");
+	    }
+	    else
+	    {	
+	        fprintf(stderr, "Got task type %s \n", request);
+		fprintf(stderr, "Got file name %s  \n", filepath);
+		generate_request_download_message(message_to_send, filepath);
+		if(send_message(socket, server_addr, message_to_send, DOWNLOADSTRING) < 0)
+		{	
+		   ERR("SEND");
+		}
+	    }
+	}
+    
+}
+
+
+void *server_listen_thread_function(void *arg)
+{
+	int clientfd;
+	struct sockaddr_in server_addr;
+	thread_arg targ;
+
+	memcpy(&targ, arg, sizeof(targ));
+
+	while (work)
+	{
+		clientfd = *targ.socket;
+		server_addr = *targ.server_addr;
+		server_listening_work(clientfd, server_addr);
+	}
+
+	return NULL;
+}
+
+
+void *input_listen_thread_function(void *arg)
+{
+	int clientfd;
+	struct sockaddr_in server_addr;
+	thread_arg targ;
+
+	memcpy(&targ, arg, sizeof(targ));
+
+	while (work)
+	{
+		clientfd = *targ.socket;
+		server_addr = *targ.server_addr;
+		input_listening_work(clientfd, server_addr);
+	}
+
+	return NULL;
+}
+
+
+void init(pthread_t *thread, thread_arg *targ,  pthread_mutex_t *mutex, int *socket, struct sockaddr_in* server_addr)
+{
+	int i;
+
+	for (i = 0; i < 2; i++)
+	{
+		targ[i].id = i - 2; /* there won't be ane conflicts with ids from server */
+		targ[i].mutex = mutex;
+		targ[i].socket = socket;
+		targ[i].server_addr = server_addr;
+		if(i == 0)
+		{
+		    if (pthread_create(&thread[i], NULL, input_listen_thread_function, (void *) &targ[i]) != 0)
+			ERR("pthread_create");
+		}
+		else
+		{
+		    if (pthread_create(&thread[i], NULL, server_listen_thread_function, (void *) &targ[i]) != 0)
+			ERR("pthread_create");
+		}
+	}
+}
+
 
 /*
  * create socket, connection
@@ -212,6 +468,7 @@ int make_socket(int broadcastEnable)
 {
 	int sock;
 	int t = 1;
+
 	/*
 	 * SOC_DGRAM - udp connection
 	 * 0 - default protocol for UDP
@@ -224,6 +481,7 @@ int make_socket(int broadcastEnable)
 	 */
 	if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(t))) 
 	      ERR("setsockopt");
+	
 	/*
 	 * set socket options
 	 * SOL_SOCKET - level of setting options, (socket)
@@ -291,147 +549,18 @@ int connect_socket(int broadcastEnable, struct sockaddr_in address)
 	return socketfd;
 }
 
-/*
- * sending message
- */
-int send_message (int socket, struct sockaddr_in server_addr, char* message, char* message_type)
+void do_work(int socket)
 {
-  char tmp[1000];
-  fprintf(stderr, "Trying to sent message %s \n", message_type);
-  /*
-   * int sockfd, const void *buf, size_t len, int flags,
-               const struct sockaddr *dest_addr, socklen_t addrlen);
-   */
-  if(TEMP_FAILURE_RETRY(sendto(socket, message, CHUNKSIZE, 0, &server_addr, sizeof(struct sockaddr_in))) < 0)
-  {
-    /*
-     * failure
-     */
-    fprintf(stderr, "Sending message %s failed \n", message_type);
-    return -1;
-  }
-  /*
-   * success
-   */
-  fprintf(stderr, "Sending message %s succeeded \n", message_type);
-  strcpy(tmp, message + sizeof(int)/sizeof(char));
-  fprintf(stderr, "Real message send =  %s  \n", tmp);
-  return 0;
-}
-
-/*
- * receiving message
- */
-task_type receive_message (int socket, struct sockaddr_in* received_server_addr, char* message)
-{
-  task_type task = NONE;
-  char * message_type = NOACTIONSTRING;
-  char tmp[1000];
-  fprintf(stderr, "Trying to receive message \n");
-  /*
-   * int sockfd, const void *buf, size_t len, int flags,
-               const struct sockaddr *dest_addr, socklen_t addrlen);
-   */
-  socklen_t size = sizeof(struct sockaddr_in);
-  if(recvfrom(socket, message, CHUNKSIZE, 0, received_server_addr, &size) < 0)
-	{
-	      if(EINTR != errno)
-	      {
-		 fprintf(stderr, "Failed receving message \n");
-		 return ERROR;
-	      }
-	      if(SIGALRM == last_signal)
-	      {
-		  fprintf(stderr, "SIG ALARM \n");
-		  return ERROR;
-	      }
-	}
-  /*
-   * success
-   */
-  task = check_message_type(message);
-  if(task == REGISTERRESPONSE)
-  {
-    message_type = REGISTERRESPONSESTRING;
-  }
-  else if(task == DOWNOLADRESPONSE)
-  {
-    message_type = DOWNLOADRESPONSESTRING;
-  }
-  strcpy(tmp, message + sizeof(int)/sizeof(char));
-  fprintf(stderr, "Real message received = %s \n", tmp);
-  fprintf(stderr, "Received message %s succeeded\n", message_type);
-  return task;
-}
-
-/*
- * write first four bytesto array
- */
-void convert_int_to_char_array(int argument, char* buf)
-{
-	int i;
-	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++) 
-	{ 
-	    buf[i] = ((char*)&argument)[i];  
-	}
-	fprintf(stderr, "Converted data %s \n", buf);
-}
-
-
-void generate_register_message(char* message)
-{
-	int type = (int)REGISTER;
-	memset(message, 0, CHUNKSIZE);
-	convert_int_to_char_array(type, message);
-	strcpy(message + sizeof(int)/sizeof(char), CLIENTREQUESTS);
-}
-
-void generate_request_download_message(char* message, char* filepath)
-{
-	int type = (int)DOWNLOAD;
-	memset(message, 0, CHUNKSIZE);
-	convert_int_to_char_array(type, message);
-	strcpy(message + sizeof(int)/sizeof(char), filepath);
-}
-
-
-void do_work(int socket, struct sockaddr_in server_addr)
-{
-    int max = 9 + FILENAME;
-    task_type task;
-    char input_message[max];
-    char filepath[FILENAME];
-    char request[20];
-    char message_to_send[CHUNKSIZE];
-    char message_received[CHUNKSIZE];
-    while(work)
+    while(work) 
     {
-	fgets(input_message, max, stdin);
-	task = get_task_type_from_input(input_message);
-	if(task == DOWNLOAD)
-	{
-	    if(sscanf(input_message, "%s %s", request, filepath) == EOF)
-	    {
-		fprintf(stderr, "PROBLEM WITH SSCANF");
-	    }
-	    else
-	    {	
-	        fprintf(stderr, "Got task type %s \n", request);
-		fprintf(stderr, "Got file name %s  \n", filepath);
-		generate_request_download_message(message_to_send, filepath);
-		if(send_message(socket, server_addr, message_to_send, DOWNLOADSTRING) < 0)
-		{	
-		   ERR("SEND");
-		}
-		else
-		  sleep(3);
-	    }
-	}
-	if(receive_message(socket, &server_addr, message_received) == ERROR)
-	{
-	   perror("Receiving message \n");
-	}
+      continue;
     }
+    /*
+     * clear threads
+     */
+    if(TEMP_FAILURE_RETRY(close(socket)) < 0)
+	  ERR("CLOSE");
+    fprintf(stderr,"Client has terminated.\n");
 }
 
 int main(int argc, char **argv)
@@ -453,17 +582,28 @@ int main(int argc, char **argv)
 	task_type task = NONE;
 	char message[CHUNKSIZE];
 	
-	generate_register_message(message);
+	pthread_t thread[2];
+	thread_arg targ[2];
+	pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+	sigset_t mask, oldmask;
 	
 	if (argc!=3)
 		usage(argv[0]);
+	
+	fprintf(stdout,"%s", INSTRUCTION);
 
 	sethandler(SIG_IGN, SIGPIPE);
 	sethandler(siginthandler, SIGINT);
-	sethandler(sigalrm_handler, SIGALRM);
+	
+	sigemptyset(&mask);
+	sigaddset(&mask, SIGINT);
+	sigprocmask(SIG_BLOCK, &mask, &oldmask);
+	
+	
+	generate_register_message(message);
 
 	
-	my_endpoint_listening_addr = make_address("localhost", atoi(argv[2]) , 0);
+	my_endpoint_listening_addr = make_address(NULL, atoi(argv[2]) , 0);
 	socket = connect_socket(0, my_endpoint_listening_addr);
 	broadcast_adrr = make_address(NULL, atoi(argv[1]), 1);
 	broadcastsocket = connect_socket(1, my_endpoint_listening_addr);
@@ -483,14 +623,10 @@ int main(int argc, char **argv)
 	if(TEMP_FAILURE_RETRY(close(broadcastsocket)) < 0)
 	  ERR("CLOSE");
 	
-	sleep(3);
+	init(thread, targ, &mutex, &socket, &server_addr);
 	
-	do_work(socket, server_addr);
+	do_work(socket);
 	
-	if(TEMP_FAILURE_RETRY(close(socket)) < 0)
-	  ERR("CLOSE");
-	fprintf(stderr,"Server has terminated.\n");
-
 	return EXIT_SUCCESS;
 }
 
