@@ -61,7 +61,7 @@ void sigalrm_handler(int sig)
  */
 void usage(char *name)
 {
-	fprintf(stderr, "USAGE: %s port\n", name);
+	fprintf(stderr, "USAGE: %s server_port client_port\n", name);
 	exit(EXIT_FAILURE);
 }
 
@@ -455,7 +455,7 @@ int main(int argc, char **argv)
 	
 	generate_register_message(message);
 	
-	if (argc!=2)
+	if (argc!=3)
 		usage(argv[0]);
 
 	sethandler(SIG_IGN, SIGPIPE);
@@ -463,27 +463,27 @@ int main(int argc, char **argv)
 	sethandler(sigalrm_handler, SIGALRM);
 
 	
-	broadcastsocket = make_socket(1);
-	
-	my_endpoint_listening_addr = make_address(NULL, atoi(argv[1]), 0);
+	my_endpoint_listening_addr = make_address("localhost", atoi(argv[2]) , 0);
 	socket = connect_socket(0, my_endpoint_listening_addr);
 	broadcast_adrr = make_address(NULL, atoi(argv[1]), 1);
-	
+	broadcastsocket = connect_socket(1, my_endpoint_listening_addr);
+
 	if(send_message(broadcastsocket, broadcast_adrr, message, REGISTERSTRING) < 0)
 	{
 	  ERR("SEND");
+	}
+	
+	while(task != REGISTERRESPONSE)
+	{
+	  task = receive_message(broadcastsocket, &server_addr, message);
+	  if(task == ERROR)
+	    ERR("RECEIVE");
 	}
 	
 	if(TEMP_FAILURE_RETRY(close(broadcastsocket)) < 0)
 	  ERR("CLOSE");
 	
 	sleep(3);
-	while(task != REGISTERRESPONSE)
-	{
-	  task = receive_message(socket, &server_addr, message);
-	  if(task == ERROR)
-	    ERR("RECEIVE");
-	}
 	
 	do_work(socket, server_addr);
 	

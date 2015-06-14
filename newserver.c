@@ -60,7 +60,7 @@ void siginthandler(int sig)
  */
 void usage(char *name)
 {
-	fprintf(stderr, "USAGE: %s port workdir\n",name);
+	fprintf(stderr, "USAGE: %s port \n",name);
 	exit(EXIT_FAILURE);
 }
 
@@ -271,11 +271,14 @@ int connect_socket( struct sockaddr_in address)
 int send_message (int socket, struct sockaddr_in client_addr, char* message, char* message_type)
 {
   char tmp[1000];
+  int port = client_addr.sin_port;
+  fprintf(stderr, "Client port %d \n", port);
   fprintf(stderr, "Trying to sent message %s \n", message_type);
   /*
    * int sockfd, const void *buf, size_t len, int flags,
                const struct sockaddr *dest_addr, socklen_t addrlen);
    */
+  
   if(TEMP_FAILURE_RETRY(sendto(socket, message, CHUNKSIZE, 0, &client_addr, sizeof(struct sockaddr_in))) < 0)
   {
     /*
