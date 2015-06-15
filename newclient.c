@@ -33,14 +33,14 @@
 
 
 #define INSTRUCTION "\nINSTRUCTUIION\nOPTIONS\ndownload file_name\nupload file_name\ndelete file_name\nlist\n\n"
-#define RECEIVEDINMAINTHREAD "Received in main thread" 
+#define RECEIVEDINTHREAD "Received in thread" 
 
 #define CLIENTREQUESTS "Client requests registration"
 #define FILENAME 50		     
 #define CHUNKSIZE 576
 
-typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNOLADRESPONSE, 
-  UPLOADDROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR, NONE} task_type;
+typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNLOADRESPONSE, 
+  UPLOADROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR, NONE} task_type;
 
 
 volatile sig_atomic_t work = 1;
@@ -52,6 +52,7 @@ typedef struct
 	struct sockaddr_in *server_addr;
 	pthread_mutex_t *mutex;
 } thread_arg;
+
 /*
  * function responsible for handling SIGINT signal 
  */
@@ -92,6 +93,9 @@ void sethandler(void (*f)(int), int sigNo)
 		ERR("sigaction");
 }
 
+/*
+ * check only first letter because user could make some mistakes in typing word
+ */
 task_type get_task_type_from_input(char * message)
 {
     int t = message[0];
@@ -197,11 +201,14 @@ ssize_t bulk_write(int fd, char *buf, size_t count)
 	return len;
 }
 
+/*
+ * check task type of message (first four bytes)
+ */
 task_type check_message_type(char * buf)
 {
 	fprintf(stderr, "Checking task type \n");
 	int i,type = 0; 
-	for(i = 0; i < sizeof(int)/sizeof(char); i++) 
+	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++) 
 	{
 	    ((char*)&type)[i] = buf[i]; 
 	} 
@@ -227,7 +234,7 @@ void generate_register_message(char* message)
 	int type = (int)REGISTER;
 	memset(message, 0, CHUNKSIZE);
 	convert_int_to_char_array(type, message);
-	strcpy(message + sizeof(int)/sizeof(char), CLIENTREQUESTS);
+	strcpy(message + sizeof(uint32_t)/sizeof(char), CLIENTREQUESTS);
 }
 
 
@@ -236,7 +243,7 @@ void generate_request_download_message(char* message, char* filepath)
 	int type = (int)DOWNLOAD;
 	memset(message, 0, CHUNKSIZE);
 	convert_int_to_char_array(type, message);
-	strcpy(message + sizeof(int)/sizeof(char), filepath);
+	strcpy(message + sizeof(uint32_t)/sizeof(char), filepath);
 }
 
 
@@ -263,7 +270,7 @@ int send_message (int socket, struct sockaddr_in server_addr, char* message, cha
 	* success
 	*/
 	fprintf(stderr, "Sending message %s succeeded \n", message_type);
-	strcpy(tmp, message + sizeof(int)/sizeof(char));
+	strcpy(tmp, message + sizeof(uint32_t)/sizeof(char));
 	fprintf(stderr, "Real message send =  %s  \n", tmp);
 	return 0;
 }
@@ -300,7 +307,7 @@ task_type receive_message (int socket, struct sockaddr_in* received_server_addr,
 	{
 	  message_type = REGISTERRESPONSESTRING;
 	}
-	else if(task == DOWNOLADRESPONSE)
+	else if(task == DOWNLOADRESPONSE)
 	{
 	  message_type = DOWNLOADRESPONSESTRING;
 	}
@@ -308,20 +315,19 @@ task_type receive_message (int socket, struct sockaddr_in* received_server_addr,
 	{
 	  message_type = DELETERESPONSESTRING;
 	}
-	else if(task == UPLOADDROSPONSE)
+	else if(task == UPLOADROSPONSE)
 	{
 	  message_type = UPLOADRESPONSESTRING;
 	}
-	strcpy(tmp, message + sizeof(int)/sizeof(char));
+	if(task == REGISTER)
+		strcpy(tmp, message + sizeof(uint32_t)/sizeof(char));
+	else 
+		strcpy(tmp, message + 2*sizeof(uint32_t)/sizeof(char));
 	fprintf(stderr, "Real message received = %s \n", tmp);
 	fprintf(stderr, "Received message %s succeeded\n", message_type);
 	return task;
 }
 
-void cleanup(void *arg)
-{
-	pthread_mutex_unlock((pthread_mutex_t *)arg);
-}
 
 /*
  * thread function for listening  anything from 
@@ -337,22 +343,22 @@ void server_listening_work(int socket, struct sockaddr_in server_addr)
 	}
 	else if(task == DELETERESPONSE)
 	{
-	    fprintf(stderr, "%s: %s", RECEIVEDINMAINTHREAD, DELETERESPONSESTRING);
+	    fprintf(stderr, "%s: %s", RECEIVEDINTHREAD, DELETERESPONSESTRING);
 	    /*
-	     * Open new thera with given task id, wait inside for DELETE message
+	     * Open new thread with given task id, wait inside for DELETE message
 	     */
 	}
-	else if(task == UPLOADDROSPONSE)
+	else if(task == UPLOADROSPONSE)
 	{
-	    fprintf(stderr, "%s : %s", RECEIVEDINMAINTHREAD, UPLOADRESPONSESTRING);
+	    fprintf(stderr, "%s : %s", RECEIVEDINTHREAD, UPLOADRESPONSESTRING);
 	}
-	else if(task == DOWNOLADRESPONSE)
+	else if(task == DOWNLOADRESPONSE)
 	{
-	    fprintf(stderr, "%s : %s", RECEIVEDINMAINTHREAD, DOWNLOADRESPONSESTRING);
+	    fprintf(stderr, "%s : %s", RECEIVEDINTHREAD, DOWNLOADRESPONSESTRING);
 	}
 	else if(task == LISTRESPONSE)
 	{
-	    fprintf(stderr, "%s : %s", RECEIVEDINMAINTHREAD, LISTRESPONSESTRING);
+	    fprintf(stderr, "%s : %s", RECEIVEDINTHREAD, LISTRESPONSESTRING);
 	}
 	/*
 	 * for task UPLOAD, DELETE, LIST, UPDATE push message to global queue and threads will know what to do
@@ -371,10 +377,7 @@ void input_listening_work(int socket, struct sockaddr_in server_addr)
 	char filepath[FILENAME];
 	char request[20];
 	char message_to_send[CHUNKSIZE];
-	  
-	/*
-	 * part responsible for listening from input
-	 */
+	
 	fgets(input_message, max, stdin);
 	task = get_task_type_from_input(input_message);
 	if(task == DOWNLOAD)
@@ -412,7 +415,7 @@ void *server_listen_thread_function(void *arg)
 		server_addr = *targ.server_addr;
 		server_listening_work(clientfd, server_addr);
 	}
-
+	pthread_exit(&targ);
 	return NULL;
 }
 
@@ -431,7 +434,7 @@ void *input_listen_thread_function(void *arg)
 		server_addr = *targ.server_addr;
 		input_listening_work(clientfd, server_addr);
 	}
-
+	pthread_exit(&targ);
 	return NULL;
 }
 
@@ -549,15 +552,16 @@ int connect_socket(int broadcastEnable, struct sockaddr_in address)
 	return socketfd;
 }
 
+/*
+ * used to maintain program working
+ */
 void do_work(int socket)
 {
     while(work) 
     {
       continue;
     }
-    /*
-     * clear threads
-     */
+
     if(TEMP_FAILURE_RETRY(close(socket)) < 0)
 	  ERR("CLOSE");
     fprintf(stderr,"Client has terminated.\n");
@@ -585,7 +589,6 @@ int main(int argc, char **argv)
 	pthread_t thread[2];
 	thread_arg targ[2];
 	pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-	sigset_t mask, oldmask;
 	
 	if (argc!=3)
 		usage(argv[0]);
@@ -595,11 +598,7 @@ int main(int argc, char **argv)
 	sethandler(SIG_IGN, SIGPIPE);
 	sethandler(siginthandler, SIGINT);
 	
-	sigemptyset(&mask);
-	sigaddset(&mask, SIGINT);
-	sigprocmask(SIG_BLOCK, &mask, &oldmask);
-	
-	
+
 	generate_register_message(message);
 
 	
