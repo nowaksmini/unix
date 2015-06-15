@@ -46,13 +46,101 @@
 #define LISTRESPONSESUCCESS "Registered request to list all files successfully"
 #define UPLOADRESPONSESUCCESS "Registered request to upload file to server successfully"
 
+#define QUEUE_NAME  "/serverqueue"
 
+#define CHECK(x) \
+    do { \
+        if (!(x)) { \
+            fprintf(stderr, "%s:%d: ", __func__, __LINE__); \
+            perror(#x); \
+            exit(-1); \
+        } \
+    } while (0) \
+
+typedef struct Queue
+{
+        int capacity;
+        int size;
+	int busy;
+        char* elements;
+}Queue;
+
+    
 typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNLOADRESPONSE, 
   UPLOADROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR, NONE} task_type;
 
 volatile sig_atomic_t work = 1;
 volatile sig_atomic_t id = 0;
+Queue* queue;
 
+typedef struct
+{
+	int id;
+	int* socket;
+	struct sockaddr_in *server_addr;
+	pthread_mutex_t *mutex;
+} thread_arg;
+
+
+/* crateQueue function takes argument the maximum number of elements the Queue can hold, creates
+   a Queue according to it and returns a pointer to the Queue. */
+Queue * createQueue(int maxElements)
+{
+        /* Create a Queue */
+        Queue *Q;
+        Q = (Queue *)malloc(sizeof(Queue));
+        /* Initialise its properties */
+        Q->elements = (char *)malloc(sizeof(char)*maxElements*CHUNKSIZE);
+        Q->size = 0;
+        Q->capacity = maxElements;
+        /* Return the pointer */
+        Q->busy = 0;
+        return Q;
+}
+
+void push(Queue* queue, char* message)
+{
+	int i;
+	int move = (queue->size) * CHUNKSIZE;
+	queue->busy = 1;
+	if(queue->size == queue->capacity)
+	{
+	    fprintf(stderr, "Too many elements in queue \n");
+	}
+	else
+	{
+	    for(i = move; i < CHUNKSIZE + move; i++)
+	    {
+	      queue->elements[i] = message[i - move];
+	    }
+	    fprintf(stderr, "Successfully copied message = %s to queue \n", message);
+	    queue->size = queue->size + 1;
+	}
+	queue->busy = 0;
+}
+
+void top(Queue* queue, char* message)
+{
+	int i;
+	queue->busy = 1;
+	if(queue->size == 0) return;
+	char messages[queue->capacity];
+	memset(messages, 0, queue->capacity);
+	for(i = 0; i< CHUNKSIZE; i++)
+	{
+	  message[i] = queue->elements[i];
+	}
+	for(i = CHUNKSIZE; i< queue->capacity; i++)
+	{
+	  messages[i - CHUNKSIZE] = queue->elements[i];
+	}
+	for(i = 0; i< queue->capacity; i++)
+	{
+	   queue->elements[i] = messages[i];
+	}
+	queue->size = queue->size -1;
+	queue->busy = 0;
+}
 
 /*
  * function responsible for handling SIGINT signal 
@@ -233,7 +321,10 @@ ssize_t bulk_write(int fd, char *buf, size_t count)
 	return len;
 }
 
-
+/*
+ * str = whole file data
+ * sum = output counted
+ */
 void compute_md5(char *str, unsigned char * sum) {
   
     MD5_CTX ctx;
@@ -295,7 +386,7 @@ int receive_message (int socket, struct sockaddr_in* received_client_addr, char*
 		    const struct sockaddr *dest_addr, socklen_t addrlen);
 	*/
 	socklen_t size = sizeof(struct sockaddr_in);
-	if(TEMP_FAILURE_RETRY(recvfrom(socket, message, CHUNKSIZE, 0, received_client_addr, &size)) < 0)
+	if(recvfrom(socket, message, CHUNKSIZE, 0, received_client_addr, &size) < 0)
 	{
 	      fprintf(stderr, "Failed receving message\n");
 	      return -1;
@@ -583,6 +674,56 @@ void generate_register_response_message(char* message)
 	strcpy(message + sizeof(uint32_t)/sizeof(char), REGISTERRESPONSESUCCESS);
 }
 
+void *server_send_register_response_function(void *arg)
+{
+	int clientfd;
+	struct sockaddr_in server_addr;
+	thread_arg targ;
+	char message[CHUNKSIZE];
+	memcpy(&targ, arg, sizeof(targ));
+	task_type task = NONE;
+	while (work)
+	{
+		/* top from queue */
+		while(queue->busy)
+		{
+		    sleep(1);
+		}
+		fprintf(stderr, "Size of queue before top = %d \n", queue->size);
+		top(queue, message);
+		fprintf(stderr, "Size of queue after top = %d \n", queue->size);
+		task = check_message_type(message);
+		if(task != REGISTER)
+		{
+		  /* push to the end of queue */
+		  fprintf(stderr, "Task was not REGISTER \n");
+		  while(queue->busy)
+		  {
+		    sleep(1);
+		  }
+		  push(queue, message);
+		  sleep(1);
+		  continue;
+		}
+		else
+		{
+		  clientfd = *targ.socket;
+		  server_addr = *targ.server_addr;
+		  generate_register_response_message(message);
+		  if(send_message(clientfd, server_addr, message, REGISTERRESPONSESTRING, REGISTERRESPONSE) < 0)
+		  {
+		    ERR("SEND REGISTERRESPONSE");
+		  }
+		  sleep(1);
+		  break;
+		}
+	}
+	pthread_exit(&targ);
+	return NULL;
+}
+
+
+
 
 /*
  * message send to client to inform about receiving new file size, md5
@@ -626,6 +767,16 @@ void generate_list_response_message(char* message)
 	strcpy(message + 2*sizeof(uint32_t)/sizeof(char), LISTRESPONSESUCCESS);
 }
 
+void init(pthread_t *thread, thread_arg *targ,  pthread_mutex_t *mutex, int *socket, struct sockaddr_in* server_addr, int i)
+{
+	targ[0].id = i; /* there won't be ane conflicts with ids from server */
+	targ[0].mutex = mutex;
+	targ[0].socket = socket;
+	targ[0].server_addr = server_addr;
+	if (pthread_create(&thread[0], NULL, server_send_register_response_function, (void *) &targ[0]) != 0)
+		ERR("pthread_create");
+}
+
 /*
  * main thread fnction receiving all communicated and creating new threads
  */
@@ -634,22 +785,29 @@ void do_work(int socket)
     char message[CHUNKSIZE];
     task_type task;
     struct sockaddr_in client_addr;
+    pthread_t thread;
+    thread_arg targ;
+    pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
     while(work)
 	  {
 	      if(receive_message(socket, &client_addr, message) < 0)
 	      {
-		perror("Receiving message \n");
+		fprintf(stderr, "Receiving message \n");
 	      }
+	      /* receive the message */
 	      else
 	      {
+		  fprintf(stderr, "Trying to generate threads \n");
+		  /* create threads and/or push message to queue */
 		  task = check_message_type(message);
 		  if(task == REGISTER)
 		  {
-		      generate_register_response_message(message);
-		      if(send_message(socket, client_addr, message, REGISTERRESPONSESTRING, REGISTERRESPONSE) < 0)
+		      while(queue->busy)
 		      {
-			ERR("SEND REGISTERRESPONSE");
+			sleep(1);
 		      }
+		      push(queue, message);
+		      init(&thread, &targ,  &mutex, &socket, &client_addr, 0);
 		  }
 		  else if(task == DOWNLOAD)
 		  {
@@ -699,6 +857,7 @@ int main(int argc, char **argv)
 	 * my_endpoint_listening_addr - adress for listening from everybody
 	 */
 	struct sockaddr_in  my_endpoint_listening_addr;
+
 	/*
 	 * socket for sending and reciving data from specified address
 	 */
@@ -714,7 +873,10 @@ int main(int argc, char **argv)
 	
 	socket = connect_socket(my_endpoint_listening_addr);
 	
-	do_work(socket);
+	queue = createQueue(100);
+	fprintf(stderr, "Created queue \n");
 
+	do_work(socket);
+	
 	return EXIT_SUCCESS;
 }
