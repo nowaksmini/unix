@@ -244,6 +244,7 @@ void generate_request_download_message(char* message, char* filepath)
 	memset(message, 0, CHUNKSIZE);
 	convert_int_to_char_array(type, message);
 	strcpy(message + sizeof(uint32_t)/sizeof(char), filepath);
+	fprintf(stderr, "Size of path put inside message %zu \n", strlen(filepath));
 }
 
 
@@ -303,27 +304,47 @@ task_type receive_message (int socket, struct sockaddr_in* received_server_addr,
 	*/
 	fprintf(stderr, "Preparing for parcing received message \n");
 	task = check_message_type(message);
+	if(task == DOWNLOAD)
+	{
+	  message_type = DOWNLOADSTRING;
+	}
+	if(task == DOWNLOADRESPONSE)
+	{
+	  message_type = DOWNLOADRESPONSESTRING;
+	}
+	if(task == DELETE)
+	{
+	  message_type = DELETESTRING;
+	}
+	if(task == DELETERESPONSE)
+	{
+	  message_type = DELETERESPONSESTRING;
+	}
+	if(task == UPLOAD)
+	{
+	  message_type = UPLOADSTRING;
+	}
+	if(task == UPLOADROSPONSE)
+	{
+	  message_type = UPLOADRESPONSESTRING;
+	}
+	if(task == LIST)
+	{
+	  message_type = LISTSTRING;
+	}
+	if(task == LISTRESPONSE)
+	{
+	  message_type = LISTRESPONSESTRING;
+	}
 	if(task == REGISTERRESPONSE)
 	{
 	  message_type = REGISTERRESPONSESTRING;
 	}
-	else if(task == DOWNLOADRESPONSE)
+	if(task == ERROR)
 	{
-	  /* got md5 of file name */
-	  message_type = DOWNLOADRESPONSESTRING;
+	  message_type = ERRORSTRING;
 	}
-	else if(task == DELETERESPONSE)
-	{
-	  message_type = DELETERESPONSESTRING;
-	}
-	else if(task == UPLOADROSPONSE)
-	{
-	  message_type = UPLOADRESPONSESTRING;
-	}
-	if(task == REGISTER)
-		strcpy(tmp, message + sizeof(uint32_t)/sizeof(char));
-	else 
-		strcpy(tmp, message + 3*sizeof(uint32_t)/sizeof(char));
+	strcpy(tmp, message + 3*sizeof(uint32_t)/sizeof(char));
 	fprintf(stderr, "Real message received = %s \n", tmp);
 	fprintf(stderr, "Received message %s succeeded\n", message_type);
 	return task;

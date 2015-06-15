@@ -75,9 +75,8 @@ Queue* queue;
 
 typedef struct
 {
-	int id;
 	int* socket;
-	struct sockaddr_in *server_addr;
+	struct sockaddr_in *client_addr;
 	pthread_mutex_t *mutex;
 } thread_arg;
 
@@ -359,15 +358,9 @@ int send_message (int socket, struct sockaddr_in client_addr, char* message, cha
    * success
    */
   fprintf(stderr, "Sending message %s succeeded \n", message_type);
-  if(task == REGISTERRESPONSE || task == ERROR)
-  {
-      strcpy(tmp, message + sizeof(uint32_t)/sizeof(char));
-  }
-  else
-  {
-      /* first four bytes is enum task_type, next four are id, next size or part of file*/
-      strcpy(tmp, message + 3*sizeof(uint32_t)/sizeof(char));
-  }
+  
+  strcpy(tmp, message + 3*sizeof(uint32_t)/sizeof(char));
+
   fprintf(stderr, "Real message send =  %s  \n", tmp);
   return 0;
 }
@@ -429,7 +422,6 @@ void convert_message_to_file_path(char* message, char* filepath)
     for(i = 0; i < FILENAME; i++)
     {
 	filepath[i] = message[i + sizeof(uint32_t)/sizeof(char)];
-	/*fprintf(stderr, "File char read from incomming message = %c \n", filepath[i]); */
     }
 }
 
@@ -523,27 +515,27 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 
 	for(i = 0; i < FILENAME; i++)
 	{
-	    if(filepath[i] == '\0')
+	    if(filepath[i] == '\0' || filepath[i] == '\n')
 	    {
 	      first_empty_sign = i;
 	      break;
 	    }
 	}
 	fprintf(stderr, "Empty sign found at position : %d \n", first_empty_sign);
-	real_file_name = malloc(first_empty_sign);
-	memset(real_file_name, 0, first_empty_sign);
+	real_file_name = calloc(first_empty_sign , sizeof(char));
+	fprintf(stderr, "Real file name size %zu after malloc \n", strlen(real_file_name));
 	for(i = 0; i < first_empty_sign; i++)
 	{
 	    real_file_name[i] = filepath[i];
 	}
 	
 	fprintf(stderr, "Real file name : %s \n", real_file_name);
-	
+	fprintf(stderr, "Real file name size %zu \n", strlen(real_file_name));
 	if (stat(real_file_name, &sts) == -1 && errno == ENOENT)
 	{
 	  /* no such file, id is 0 */
 	  put_id_to_message(message, &message_id);
-	  strcpy(message + 2*sizeof(uint32_t)/sizeof(char), DOWNLOADRESPONSEERROR);
+	  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), DOWNLOADRESPONSEERROR);
 	}
 	else
 	{
@@ -554,7 +546,7 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 	   {
 		  fprintf(stderr, "Could not open file %s \n", real_file_name);
 		  put_id_to_message(message, &message_id);
-		  strcpy(message + 2*sizeof(uint32_t)/sizeof(char), DOWNLOADRESPONSEERROR);
+		  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), DOWNLOADRESPONSEERROR);
 	   }
 	   else
 	   {
@@ -565,6 +557,10 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 		  compute_md5(file_contents, md5_sum);
 		  
 		  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), DOWNLOADRESPONSESUCCESS);
+	   }
+	   if (TEMP_FAILURE_RETRY(close(fd)) == -1)
+	   {
+	     fprintf(stderr, "Could not close file %s \n", real_file_name);
 	   }
 	}
 	send_message(socket, client_addr, message, DOWNLOADRESPONSESTRING, DOWNLOADRESPONSE);
@@ -600,18 +596,55 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 	  sleep(1);
 	}
 	free (file_contents);
-	/*if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDONLY))) == -1)
-	{
-		fprintf(stderr, "Could not open file %s \n", real_file_name);
-	}
-	else
-	{
-		if ((size = bulk_read(fd, buffer, CHUNKSIZE)) == -1)
-			ERR("read");
-	}
-	if (TEMP_FAILURE_RETRY(sendto(clientfd, buffer, CHUNKSIZE, 0, &addr, sizeof(addr))) < 0 && errno != EPIPE)
-		ERR("write");*/
+	free (package);
 }
+
+
+void *server_send_download_response_function(void *arg)
+{
+	int clientfd;
+	struct sockaddr_in client_addr;
+	thread_arg targ;
+	char message[CHUNKSIZE];
+	memcpy(&targ, arg, sizeof(targ));
+	task_type task = NONE;
+	while (work)
+	{
+		/* top from queue */
+		while(queue->busy)
+		{
+		    sleep(1);
+		}
+		fprintf(stderr, "Size of queue before top = %d \n", queue->size);
+		top(queue, message);
+		fprintf(stderr, "Size of queue after top = %d \n", queue->size);
+		task = check_message_type(message);
+		if(task != DOWNLOAD)
+		{
+		  /* push to the end of queue */
+		  fprintf(stderr, "Task was not DOWNLOAD \n");
+		  while(queue->busy)
+		  {
+		    sleep(1);
+		  }
+		  push(queue, message);
+		  sleep(1);
+		  continue;
+		}
+		else
+		{
+		  clientfd = *targ.socket;
+		  client_addr = *targ.client_addr;
+		  readfile(message, clientfd, client_addr);
+		  sleep(1);
+		  break;
+		}
+	}
+	fprintf(stderr, "Destroing download thread\n");
+	pthread_exit(&targ);
+	return NULL;
+}
+
 /*
  * create socket, connection
  */
@@ -671,13 +704,13 @@ void generate_register_response_message(char* message)
 	int type = (int)REGISTERRESPONSE;
 	memset(message, 0, CHUNKSIZE);
 	convert_int_to_char_array(type, message);
-	strcpy(message + sizeof(uint32_t)/sizeof(char), REGISTERRESPONSESUCCESS);
+	strcpy(message + 3*sizeof(uint32_t)/sizeof(char), REGISTERRESPONSESUCCESS);
 }
 
 void *server_send_register_response_function(void *arg)
 {
 	int clientfd;
-	struct sockaddr_in server_addr;
+	struct sockaddr_in client_addr;
 	thread_arg targ;
 	char message[CHUNKSIZE];
 	memcpy(&targ, arg, sizeof(targ));
@@ -708,9 +741,9 @@ void *server_send_register_response_function(void *arg)
 		else
 		{
 		  clientfd = *targ.socket;
-		  server_addr = *targ.server_addr;
+		  client_addr = *targ.client_addr;
 		  generate_register_response_message(message);
-		  if(send_message(clientfd, server_addr, message, REGISTERRESPONSESTRING, REGISTERRESPONSE) < 0)
+		  if(send_message(clientfd, client_addr, message, REGISTERRESPONSESTRING, REGISTERRESPONSE) < 0)
 		  {
 		    ERR("SEND REGISTERRESPONSE");
 		  }
@@ -721,8 +754,6 @@ void *server_send_register_response_function(void *arg)
 	pthread_exit(&targ);
 	return NULL;
 }
-
-
 
 
 /*
@@ -767,14 +798,21 @@ void generate_list_response_message(char* message)
 	strcpy(message + 2*sizeof(uint32_t)/sizeof(char), LISTRESPONSESUCCESS);
 }
 
-void init(pthread_t *thread, thread_arg *targ,  pthread_mutex_t *mutex, int *socket, struct sockaddr_in* server_addr, int i)
+void init(pthread_t *thread, thread_arg *targ,  pthread_mutex_t *mutex, int *socket, struct sockaddr_in* client_addr, task_type task)
 {
-	targ[0].id = i; /* there won't be ane conflicts with ids from server */
 	targ[0].mutex = mutex;
 	targ[0].socket = socket;
-	targ[0].server_addr = server_addr;
-	if (pthread_create(&thread[0], NULL, server_send_register_response_function, (void *) &targ[0]) != 0)
+	targ[0].client_addr = client_addr;
+	if(task == REGISTER)
+	{
+	  if (pthread_create(&thread[0], NULL, server_send_register_response_function, (void *) &targ[0]) != 0)
 		ERR("pthread_create");
+	}
+	if(task == DOWNLOAD)
+	{
+	   if (pthread_create(&thread[0], NULL, server_send_download_response_function, (void *) &targ[0]) != 0)
+		ERR("pthread_create");
+	}
 }
 
 /*
@@ -800,18 +838,14 @@ void do_work(int socket)
 		  fprintf(stderr, "Trying to generate threads \n");
 		  /* create threads and/or push message to queue */
 		  task = check_message_type(message);
-		  if(task == REGISTER)
+		  if(task == REGISTER || task == DOWNLOAD)
 		  {
 		      while(queue->busy)
 		      {
 			sleep(1);
 		      }
 		      push(queue, message);
-		      init(&thread, &targ,  &mutex, &socket, &client_addr, 0);
-		  }
-		  else if(task == DOWNLOAD)
-		  {
-		      readfile(message, socket, client_addr);
+		      init(&thread, &targ,  &mutex, &socket, &client_addr, task);
 		  }
 		  else if(task == LIST)
 		  {
