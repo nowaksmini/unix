@@ -309,6 +309,7 @@ task_type receive_message (int socket, struct sockaddr_in* received_server_addr,
 	}
 	else if(task == DOWNLOADRESPONSE)
 	{
+	  /* got md5 of file name */
 	  message_type = DOWNLOADRESPONSESTRING;
 	}
 	else if(task == DELETERESPONSE)
@@ -322,7 +323,7 @@ task_type receive_message (int socket, struct sockaddr_in* received_server_addr,
 	if(task == REGISTER)
 		strcpy(tmp, message + sizeof(uint32_t)/sizeof(char));
 	else 
-		strcpy(tmp, message + 2*sizeof(uint32_t)/sizeof(char));
+		strcpy(tmp, message + 3*sizeof(uint32_t)/sizeof(char));
 	fprintf(stderr, "Real message received = %s \n", tmp);
 	fprintf(stderr, "Received message %s succeeded\n", message_type);
 	return task;

@@ -15,6 +15,7 @@
 #include <string.h>
 #include <sys/stat.h> 
 #include <inttypes.h>
+#include <openssl/md5.h>
 #define ERR(source) (perror(source),\
 		     fprintf(stderr,"%s:%d\n",__FILE__,__LINE__),\
 		     exit(EXIT_FAILURE))
@@ -22,6 +23,7 @@
 		     exit(EXIT_FAILURE))
 #define CHUNKSIZE 576
 #define FILENAME 50
+#define MD5LENGTH 200
 
 #define DOWNLOADSTRING "download"
 #define UPLOADSTRING "upload"
@@ -232,6 +234,14 @@ ssize_t bulk_write(int fd, char *buf, size_t count)
 }
 
 
+void compute_md5(char *str, unsigned char * sum) {
+  
+    MD5_CTX ctx;
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, str, strlen(str));
+    MD5_Final(sum, &ctx);
+}
+
 /*
  * sending message
  */
@@ -264,8 +274,8 @@ int send_message (int socket, struct sockaddr_in client_addr, char* message, cha
   }
   else
   {
-      /* first four bytes is enym task_type, next four are id */
-      strcpy(tmp, message + 2*sizeof(uint32_t)/sizeof(char));
+      /* first four bytes is enum task_type, next four are id, next size or part of file*/
+      strcpy(tmp, message + 3*sizeof(uint32_t)/sizeof(char));
   }
   fprintf(stderr, "Real message send =  %s  \n", tmp);
   return 0;
@@ -324,11 +334,67 @@ int receive_message (int socket, struct sockaddr_in* received_client_addr, char*
  */
 void convert_message_to_file_path(char* message, char* filepath)
 {
-    int i = sizeof(uint32_t)/sizeof(char);
-    for(i = sizeof(uint32_t)/sizeof(char); i < FILENAME + sizeof(uint32_t)/sizeof(char); i++)
+    int i;
+    for(i = 0; i < FILENAME; i++)
     {
-	filepath[i-sizeof(uint32_t)/sizeof(char)] = message[i];
+	filepath[i] = message[i + sizeof(uint32_t)/sizeof(char)];
+	/*fprintf(stderr, "File char read from incomming message = %c \n", filepath[i]); */
     }
+}
+
+
+/*
+ * This routine returns the size of the file it is called with. 
+ */
+
+static unsigned get_file_size (const char * file_name)
+{
+    struct stat sb;
+    if (stat (file_name, & sb) != 0) {
+        fprintf (stderr, "'stat' failed for '%s': %s.\n",
+                 file_name, strerror (errno));
+        return -1;
+    }
+    return sb.st_size;
+}
+
+/* This routine reads the entire file into memory. */
+
+char * read_whole_file (const char * file_name)
+{
+    unsigned s;
+    char * contents;
+    FILE * f;
+    size_t bytes_read;
+    int status;
+
+    s = get_file_size (file_name);
+    if(s == -1) return NULL;
+    contents = malloc (s + 1);
+    if (! contents) {
+        fprintf (stderr, "Not enough memory.\n");
+        return NULL;
+    }
+
+    f = fopen (file_name, "r");
+    if (! f) {
+        fprintf (stderr, "Could not open '%s': %s.\n", file_name, strerror (errno));
+        return NULL;
+    }
+    bytes_read = fread (contents, sizeof (unsigned char), s, f);
+    if (bytes_read != s) {
+        fprintf (stderr, "Short read of '%s': expected %d bytes "
+                 "but got %zu: %s.\n", file_name, s, bytes_read,
+                 strerror (errno));
+        return NULL;
+    }
+    status = fclose (f);
+    if (status != 0) {
+        fprintf (stderr, "Error closing '%s': %s.\n", file_name,
+                 strerror (errno));
+        return NULL;
+    }
+    return contents;
 }
 
 
@@ -341,20 +407,48 @@ void convert_message_to_file_path(char* message, char* filepath)
  */
 void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 {
-	/*int fd; file desriptor */
+	int fd; /*file desriptor */
+	int i;
 	struct stat sts;
 	char filepath[FILENAME];
 	char message[CHUNKSIZE];
+	char * real_file_name;
+	unsigned char md5_sum[MD5LENGTH];
 	int type = (int)DOWNLOADRESPONSE;
 	int size = 0;
+	int first_empty_sign = FILENAME - 1;
 	uint32_t message_id = 0;
-	convert_message_to_file_path(messagein, filepath);
+	int tmp_id;
+	int package_amount;
+	char * file_contents;
+	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
+	char *package;
+	package = malloc(real_package_size);
 	memset(message, 0, CHUNKSIZE);
 	memset(filepath, 0, FILENAME);
+	memset(md5_sum, 0, MD5LENGTH);
+	convert_message_to_file_path(messagein, filepath);
 	convert_int_to_char_array(type, message);
 
+	for(i = 0; i < FILENAME; i++)
+	{
+	    if(filepath[i] == '\0')
+	    {
+	      first_empty_sign = i;
+	      break;
+	    }
+	}
+	fprintf(stderr, "Empty sign found at position : %d \n", first_empty_sign);
+	real_file_name = malloc(first_empty_sign);
+	memset(real_file_name, 0, first_empty_sign);
+	for(i = 0; i < first_empty_sign; i++)
+	{
+	    real_file_name[i] = filepath[i];
+	}
 	
-	if (stat(filepath, &sts) == -1 && errno == ENOENT)
+	fprintf(stderr, "Real file name : %s \n", real_file_name);
+	
+	if (stat(real_file_name, &sts) == -1 && errno == ENOENT)
 	{
 	  /* no such file, id is 0 */
 	  put_id_to_message(message, &message_id);
@@ -364,16 +458,60 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 	{
 	   size = sts.st_size;
 	   id = id + 1;
-	   put_id_to_message(message,(uint32_t*) &id);
-	   put_value_int_to_message(size, message);
-	   strcpy(message + 3*sizeof(uint32_t)/sizeof(char), DOWNLOADRESPONSESUCCESS);
-	   
+	   tmp_id = id;
+	   if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDONLY))) == -1)
+	   {
+		  fprintf(stderr, "Could not open file %s \n", real_file_name);
+		  put_id_to_message(message, &message_id);
+		  strcpy(message + 2*sizeof(uint32_t)/sizeof(char), DOWNLOADRESPONSEERROR);
+	   }
+	   else
+	   {
+		  put_id_to_message(message,(uint32_t*) &id);
+		  put_value_int_to_message(size, message);
+			      
+		  file_contents = read_whole_file (real_file_name);
+		  compute_md5(file_contents, md5_sum);
+		  
+		  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), DOWNLOADRESPONSESUCCESS);
+	   }
 	}
-	send_message(socket, client_addr, message, DOWNLOADRESPONSESTRING, DOWNLOAD);
-
-	/*if ((fd = TEMP_FAILURE_RETRY(open(filepath, O_RDONLY))) == -1)
+	send_message(socket, client_addr, message, DOWNLOADRESPONSESTRING, DOWNLOADRESPONSE);
+	free(real_file_name);
+	sleep(1);
+	
+	/*
+	 * divide whole file to smaller one packages of size CHUNKSIZE - TYPE_LENGTH - TASK_ID_LENGTH - PACKAGE_NUMBER
+	 */
+	type = DOWNLOAD;
+	convert_int_to_char_array(type, message);
+	if(tmp_id != 0)
 	{
-		fprintf(stderr, "Could not open file %s \n", filepath);
+	  if(strlen(file_contents) == strlen(file_contents) / real_package_size * real_package_size)
+	    package_amount = strlen(file_contents) / real_package_size;
+	  else 
+	    package_amount = strlen(file_contents) / real_package_size + 1;
+	  
+	  for(i = 0; i < package_amount; i++)
+	  {
+	      strcpy(package, file_contents + i * real_package_size);
+	      put_id_to_message(message,(uint32_t*) &tmp_id);
+	      put_value_int_to_message(i, message);
+	      strcpy(message + 3*sizeof(uint32_t)/sizeof(char), package);
+	      fprintf(stderr, "Sending data package number %d for task id %d : %s \n", i,tmp_id, package);
+	      send_message(socket, client_addr, message, DOWNLOADSTRING, DOWNLOAD);
+	      sleep(1);
+	  }
+	  put_value_int_to_message(i, message);
+	  fprintf(stderr, "Sending md5 sum for task id %d \n", tmp_id);
+	  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), (char*)md5_sum);
+	  send_message(socket, client_addr, message, DOWNLOADSTRING, DOWNLOAD);
+	  sleep(1);
+	}
+	free (file_contents);
+	/*if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDONLY))) == -1)
+	{
+		fprintf(stderr, "Could not open file %s \n", real_file_name);
 	}
 	else
 	{
@@ -445,19 +583,6 @@ void generate_register_response_message(char* message)
 	strcpy(message + sizeof(uint32_t)/sizeof(char), REGISTERRESPONSESUCCESS);
 }
 
-/*
- * message send to client to inform about existing or not file to download,
- * generating id for new task and informing about file size
- */
-void generate_downolad_response_message(char* message)
-{
-	int type = (int)DOWNLOADRESPONSE;
-	memset(message, 0, CHUNKSIZE);
-	convert_int_to_char_array(type, message);
-	id = id + 1;
-	put_id_to_message(message,(uint32_t*) &id);
-	strcpy(message + 2*sizeof(uint32_t)/sizeof(char), DOWNLOADRESPONSESUCCESS);
-}
 
 /*
  * message send to client to inform about receiving new file size, md5
@@ -528,18 +653,11 @@ void do_work(int socket)
 		  }
 		  else if(task == DOWNLOAD)
 		  {
-		    
 		      readfile(message, socket, client_addr);
-		      /*generate_downolad_response_message(message);
-		      if(send_message(socket, client_addr, message, DOWNLOADRESPONSESTRING, DOWNLOADRESPONSE) < 0)
-		      {
-			ERR("SEND DOWNLOADRESPONSE");
-		      }*/
-		      
 		  }
 		  else if(task == LIST)
 		  {
-		      generate_downolad_response_message(message);
+		      generate_list_response_message(message);
 		      if(send_message(socket, client_addr, message, LISTRESPONSESTRING, LISTRESPONSE) < 0)
 		      {
 			ERR("SEND LISTRESPONSE");
@@ -547,7 +665,7 @@ void do_work(int socket)
 		  }
 		  else if(task == UPLOAD)
 		  {
-		      generate_downolad_response_message(message);
+		      generate_upload_response_message(message);
 		      if(send_message(socket, client_addr, message, UPLOADRESPONSESTRING, UPLOADROSPONSE) < 0)
 		      {
 			ERR("SEND UPLOADDRESPONSE");
@@ -555,7 +673,7 @@ void do_work(int socket)
 		  }
 		  else if(task == DELETE)
 		  {
-		      generate_downolad_response_message(message);
+		      generate_delete_response_message(message);
 		      if(send_message(socket, client_addr, message, DELETERESPONSESTRING, DELETERESPONSE) < 0)
 		      {
 			ERR("SEND DELETERESPONSE");
