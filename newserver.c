@@ -471,6 +471,10 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 		{
 		  package[j] = file_contents[i * real_package_size + j];
 		}
+		else
+		{
+		  package[j] = '\0';
+		}
 	      }
 	      put_id_to_message(message,tmp_id);
 	      put_size_to_message((uint32_t)i, message);

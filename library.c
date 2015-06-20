@@ -92,7 +92,6 @@ void push(Queue* queue, char* message)
 	    sleep(2);
 	}
 	queue->busy = 1;
-	
 	for(i = move; i < CHUNKSIZE + move; i++)
 	{
 	   queue->elements[i] = message[i - move];
@@ -133,13 +132,6 @@ int top(Queue* queue, char* message)
 	   queue->elements[i] = messages[i];
 	}
 	queue->size = queue->size -1;
-	sleep(3);
-	fprintf(stderr, "AFTER TOP \n \n \n \n");
-	for(i = 0; i< queue->size * CHUNKSIZE; i++)
-	{
-	   if(i%CHUNKSIZE == 0) fprintf(stderr, "\n \n \n KAWAL");
-	   fprintf(stderr, "QUE %c " , queue->elements[i]);
-	}
 	queue->busy = 0;
 	return 0;
 }

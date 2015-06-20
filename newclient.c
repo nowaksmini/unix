@@ -296,16 +296,9 @@ void input_listening_work(int socket, struct sockaddr_in server_addr)
 void server_listening_work(int socket, struct sockaddr_in server_addr)
 {
 	task_type task = NONE;
-	int i;
 	char message_received[CHUNKSIZE];
 	task = receive_message(socket, &server_addr, message_received);
 	fprintf(stderr, "SERVER_LISTENING, task = %d \n", (int)task);
-	sleep(3);
-	for(i = 0; i < CHUNKSIZE; i++)
-	{
-	  fprintf(stderr, "REC %c ", message_received[i]);
-	}
-	fprintf(stderr, "\n \n \n ");
 	push(queue, message_received);
 	/*switch(task)
 	{
@@ -407,16 +400,14 @@ void *download_thread_function(void *arg)
 	char* message;
 	int first_empty_sign;
 	task_type task;
-	char *buf;
 	char * package;
 	int package_number;
 	char * file_contents;
+	uint8_t * packages;
 	message = calloc(CHUNKSIZE, sizeof(char));
 	unsigned char md5_sum[MD5LENGTH];
-	FILE* file;
 	memcpy(&targ, arg, sizeof(targ));
 	error_file_path = (char*) calloc(FILENAME, sizeof(char));
-	struct stat sts;
 	package = malloc(real_package_size);
 	if (work)
 	{
@@ -428,17 +419,6 @@ void *download_thread_function(void *arg)
 	for(i = 0; i< FILENAME; i++)
 	{
 	  oldFilePath[i] = filepath[i];
-	}
-	
-	sleep(10);
-	for(i = 0; i < queue->size * CHUNKSIZE; i++)
-	{
-	  if(i % CHUNKSIZE == 0) 
-	  {
-	    fprintf(stderr,"ODSTEP \n \n \n \n ");
-	    sleep(10);
-	  }
-	  fprintf(stderr, "ZNAK %c ", queue->elements[i]);
 	}
 	/*
 	 * receive communicate from server about existing file or not
@@ -523,17 +503,13 @@ void *download_thread_function(void *arg)
 		    if(open(real_file_name, O_RDWR) < 0)
 		    {
 			  fd = open(real_file_name, O_RDWR | O_CREAT, S_IRWXU | S_IRGRP | S_IROTH);
-			  
 			  fprintf(stderr, "Creating new file \n");
 			  filesize = get_file_size_from_message(message);
-			  buf = calloc(filesize, sizeof(char));
-			  for(i = 0; i< filesize; i++)
-			    buf[i] = '0';
-			  bulk_write(fd, buf, filesize);
 			  if(filesize == filesize / real_package_size * real_package_size)
 			    package_amount = filesize / real_package_size;
 			  else 
-			      package_amount = filesize / real_package_size + 1;	
+			      package_amount = filesize / real_package_size + 1;
+			  packages = calloc(package_amount, sizeof(uint8_t));
 		    }
 		    else
 		    {
@@ -597,20 +573,26 @@ void *download_thread_function(void *arg)
 			    return NULL;
 			  }
 			compute_md5(file_contents, md5_sum);
-			strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char) + FILENAME);
+			package = malloc(real_package_size);
+			strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char));
+			fprintf(stderr, "Got md5 sum %s for file %s \n", md5_sum, real_file_name);
 			for(i = 0; i< MD5LENGTH; i++)
 			{
-			  if(md5_sum[i] != package[i])
+			  if(md5_sum[i] == '\0') break;
+			  if(((int)md5_sum[i] - (int)package[i] ) % 256 != 0)
 			  {
-			    fprintf(stdout, "Wrong md5 sum %s \n", real_file_name);
+			    fprintf(stdout, "Wrong md5 sum %s for field %d %d %d \n", real_file_name, i, (int)md5_sum[i], (int)package[i]);
 			    return NULL;
 			  }
-			}		
+			}
+			fprintf(stdout, "Md5 sums correct for file %s \n", real_file_name);
+			break;
 		      }
 		      else
 		      {
 			fprintf(stderr, "Write data to update file \n");
-			strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char) + FILENAME);
+			package = malloc(real_package_size);
+			strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char));
 			if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDWR))) == -1)
 			{
 			  fprintf(stderr, "Could not open file \n");
@@ -655,27 +637,25 @@ void *download_thread_function(void *arg)
 			  fprintf(stderr, "Could not open file %s \n", real_file_name);
 			  return NULL;
 			}*/
-			/*file = fdopen(fd, "rw");
-			if(file == NULL)
-			{
-			  if(errno == EINVAL)
-			  {
-			    fprintf(stderr, "Wrong mode of oppening file \n");
-			  }
-			  return NULL;
-			}*/
 			fprintf(stderr, "Package number %d \n", package_number);
-			if(lseek(fd, package_number * real_package_size, SEEK_SET) < 0)
-			{
-			  fprintf(stderr, "Could not write.\n");
+			if(package_number == 0 || packages[package_number-1] == 1)
+			{	
+				packages[package_number] = 1;
+				if(lseek(fd, 0, SEEK_END) < 0)
+				{
+				  fprintf(stderr, "Could not write.\n");
+				  close(fd);
+				  continue;
+				}
+				bulk_write(fd, package, strlen(package));
+				fprintf(stderr, "Package was written to file %s \n", real_file_name);
+				close(fd);
 			}
-			for(i = 0; i < strlen(package); i++)
+			else
 			{
-			  fprintf(stderr, "Package contains at position %d char %c \n", i, package[i]);
+			  fprintf(stderr, "Pushing message back to queue \n");
+			  push(queue, message);
 			}
-			bulk_write(fd, package, strlen(package));
-			fprintf(stderr, "Package was written to file %s \n", real_file_name);
-			close(fd);
 		      }
 		  }
 		  else
@@ -685,8 +665,6 @@ void *download_thread_function(void *arg)
 		  }
 	      }
 	  }
-	  
-	  
 	pthread_exit(&targ);
 	return NULL;
 }
