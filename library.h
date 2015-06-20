@@ -77,70 +77,48 @@ typedef struct
 	char* filename;
 } thread_arg;
 
+volatile sig_atomic_t work;
+Queue* queue;
 
-/*
- * function responsible for handling SIGINT signal 
- */
+task_type convert_uint32_to_task_type(uint32_t number);
+
+uint32_t convert_task_type_to_uint32(task_type task);
+
 void siginthandler(int sig);
 
-/*
- * set handler for specified signal
- */
 void sethandler(void (*f)(int), int sigNo);
 
-/*
- * str = whole file data
- * sum = output counted
- */
 void compute_md5(char *str, unsigned char * sum);
 
-/* crateQueue function takes argument the maximum number of elements the Queue can hold, creates
-   a Queue according to it and returns a pointer to the Queue. */
 Queue * createQueue(int maxElements);
 
 void push(Queue* queue, char* message);
 
-void top(Queue* queue, char* message);
+int top(Queue* queue, char* message);
 
-/*
- * buf - memory to write data read from file, must be allocated for minimum count size
- * fd - descriptor of file
- * count - amount of bytes to read
- */
 ssize_t bulk_read(int fd, char *buf, size_t count);
 
-/*
- * buf - memory to data written to file
- * fd - descriptor of file
- * count - amount of bytes to write
- */
 ssize_t bulk_write(int fd, char *buf, size_t count);
-/*
- * check task type of message (first four bytes)
- */
-task_type check_message_type(char * buf);
-/*
- * write first four bytes to array
- */
-void convert_int_to_char_array(int argument, char* buf);
 
-/*
- * puts value always on position 2*sizeof(uint32_t)/sizeof(char) after id of message transaction
- */
-void put_value_int_to_message(uint32_t value, char* buf);
+task_type check_message_type(char * buf);
+
+void save_massage_type_to_message(uint32_t type, char* buf);
+
+void put_size_to_message(uint32_t value, char* buf);
 
 void get_filename_from_message(char *buf, char* filename);
 
 uint32_t get_id_from_message(char* buf);
 
-int get_file_size_from_message(char*message);
+uint32_t get_file_size_from_message(char*message);
 
 void put_id_to_message(char * buf, uint32_t id_message);
 
 unsigned get_file_size (const char * file_name);
 
-/* This routine reads the entire file into memory. */
-
 char * read_whole_file (const char * file_name);
+
+void* server_send_response_function(void * arg, char * type_name, task_type expected_type, void (*function) (char*, int, struct sockaddr_in));
+
 #endif
  
