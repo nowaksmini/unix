@@ -362,7 +362,7 @@ void generate_upload_response_message(int* my_id, char* message, int socket, str
 void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 {
 	int fd; /*file desriptor */
-	int i;
+	int i, j;
 	struct stat sts;
 	char filepath[FILENAME];
 	char message[CHUNKSIZE];
@@ -464,7 +464,14 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 	  {
 	      memset(message, 0, CHUNKSIZE);
 	      save_massage_type_to_message(DOWNLOAD, message);
-	      strcpy(package, file_contents + i * real_package_size);
+	      fprintf(stderr, "BEFORE \n");
+	      for(j = 0; j < real_package_size; j ++)
+	      {
+		if(i * real_package_size + j < strlen(file_contents))
+		{
+		  package[j] = file_contents[i * real_package_size + j];
+		}
+	      }
 	      put_id_to_message(message,tmp_id);
 	      put_size_to_message((uint32_t)i, message);
 	      strcpy(message + 3*sizeof(uint32_t)/sizeof(char), package);
@@ -475,6 +482,7 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 	  memset(message, 0, CHUNKSIZE);
 	  save_massage_type_to_message(DOWNLOAD, message);
 	  put_size_to_message((uint32_t)i, message);
+	  put_id_to_message(message,tmp_id);
 	  fprintf(stderr, "Sending md5 sum for task id %d \n", tmp_id);
 	  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), (char*)md5_sum);
 	  send_message(socket, client_addr, message, DOWNLOADSTRING, DOWNLOAD);

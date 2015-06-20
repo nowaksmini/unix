@@ -56,7 +56,7 @@
 
 #define CLIENTREQUESTS "Client requests registration"
 #define FILENAME 50		     
-#define CHUNKSIZE 576
+#define CHUNKSIZE 100
 
 
 typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNLOADRESPONSE, 
