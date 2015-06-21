@@ -15,7 +15,7 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <string.h>
-#include <sys/stat.h> 
+#include <sys/stat.h>
 #include <inttypes.h>
 #include <openssl/md5.h>
 #define ERR(source) (perror(source),\
@@ -52,14 +52,14 @@
 
 
 #define INSTRUCTION "\nINSTRUCTUIION\nOPTIONS\ndownload file_name\nupload file_name\nremove file_name\n\n"
-#define RECEIVEDINTHREAD "Received in thread" 
+#define RECEIVEDINTHREAD "Received in thread"
 
 #define CLIENTREQUESTS "Client requests registration"
-#define FILENAME 50		     
-#define CHUNKSIZE 100
+#define FILENAME 50
+#define CHUNKSIZE 576
 #define QUEUECAPACITY 200
 
-typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNLOADRESPONSE, 
+typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNLOADRESPONSE,
   UPLOADROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR, NONE} task_type;
 
 typedef struct Queue
@@ -79,6 +79,8 @@ typedef struct
 
 volatile sig_atomic_t work;
 Queue* queue;
+
+int rand_range(int min_n, int max_n);
 
 task_type convert_uint32_to_task_type(uint32_t number);
 
@@ -136,4 +138,4 @@ uint8_t open_file(char* real_file_name, int *fd);
 
 uint8_t check_top_of_queue(char* message_type, task_type* task, char* message, task_type expected_task, char* error_file_path);
 #endif
- 
+

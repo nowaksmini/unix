@@ -13,12 +13,19 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <string.h>
-#include <sys/stat.h> 
+#include <sys/stat.h>
 #include <inttypes.h>
 #include <openssl/md5.h>
 #include "library.h"
 
 
+/*
+ * random number from min and max value
+ */
+int rand_range(int min_n, int max_n)
+{
+    return rand() % (max_n - min_n + 1) + min_n;
+}
 
 /*
  * set handler for specified signal
@@ -44,28 +51,27 @@ void sethandler(void (*f)(int), int sigNo)
 }
 
 /*
- * function responsible for handling SIGINT signal 
+ * function responsible for handling SIGINT signal
  */
 void siginthandler(int sig)
 {
 	work = 0;
 }
 
-
 /*
  * str = whole file data
  * sum = output counted
  */
 void compute_md5(char *str, unsigned char * sum) {
-  
+
     MD5_CTX ctx;
     MD5_Init(&ctx);
     MD5_Update(&ctx, str, strlen(str));
     MD5_Final(sum, &ctx);
 }
 
-/* crateQueue function takes argument the maximum number of elements the Queue can hold, 
- * creates a Queue according to it and returns a pointer to the Queue. 
+/* crateQueue function takes argument the maximum number of elements the Queue can hold,
+ * creates a Queue according to it and returns a pointer to the Queue.
  */
 Queue * createQueue(int maxElements)
 {
@@ -121,7 +127,7 @@ int top(Queue* queue, char* message)
 	  sleep(1);
 	}
 	queue->busy = 1;
-	if(queue->size == 0) 
+	if(queue->size == 0)
 	{
 	  queue->busy = 0;
 	  fprintf(stderr, "Empty queue \n");
@@ -308,7 +314,7 @@ uint32_t convert_task_type_to_uint32(task_type task)
 task_type check_message_type(char * buf)
 {
 	uint32_t i,number = 0;
-	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++) 
+	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++)
 	{
 		((char*)&number)[i] = buf[i];
 	}
@@ -328,7 +334,7 @@ void save_massage_type_to_message(task_type task, char* buf)
 	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++)
 	{
 		buf[i] = ((char*)&number)[i];
-	}	
+	}
 }
 
 /*
@@ -342,11 +348,11 @@ void put_size_to_message(uint32_t value, char* buf)
 	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++)
 	{
 		buf[i + 2*sizeof(uint32_t)/sizeof(char)] = ((char*)&number)[i];
-	}	
+	}
 }
 
 /*
- * get from message filename and save it to *filename 
+ * get from message filename and save it to *filename
  */
 void get_filename_from_message(char *buf, char* filename)
 {
@@ -360,7 +366,7 @@ void get_filename_from_message(char *buf, char* filename)
 uint32_t get_id_from_message(char* buf)
 {
 	uint32_t i,number = 0;
-	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++) 
+	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++)
 	{
 		((char*)&number)[i] = buf[i + sizeof(uint32_t)/sizeof(char)];
 	}
@@ -370,12 +376,12 @@ uint32_t get_id_from_message(char* buf)
 }
 
 /*
- * gets file size or number of package frommessage
+ * gets file size or number of package from message
  */
 uint32_t get_file_size_from_message(char* message)
 {
 	uint32_t i,Number = 0;
-	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++) 
+	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++)
 	{
 		((char*)&Number)[i] = message[i + 2*sizeof(uint32_t)/sizeof(char)];
 	}
@@ -393,7 +399,7 @@ void put_id_to_message(char * buf, uint32_t id_message)
 	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++)
 	{
 		buf[i + sizeof(uint32_t)/sizeof(char)] = ((char*)&Number)[i];
-	}		
+	}
 }
 
 /* TO DO */
@@ -411,8 +417,8 @@ unsigned get_file_size (const char * file_name)
 
 /* TO DO */
 
-/* 
- *This routine reads the entire file into memory. 
+/*
+ *This routine reads the entire file into memory.
  */
 char * read_whole_file (const char * file_name)
 {
@@ -463,34 +469,13 @@ void* server_send_response_function(void * arg, char * type_name, task_type expe
 	memcpy(&targ, arg, sizeof(targ));
 	task_type task = NONE;
 	char* error_file_path;
-	message = calloc(CHUNKSIZE, sizeof(char));
-	error_file_path = (char *)calloc(FILENAME, sizeof(char));
+	message = (char*)malloc(CHUNKSIZE * sizeof(char));
+	error_file_path = (char *)malloc(FILENAME * sizeof(char));
 	while (work)
 	{
 		/* top from queue */
-		if (top(queue, message) < 0)
-		{
-		  fprintf(stderr, "Queue is empty, nothing to show \n");
-		  sleep(2);
-		  message = calloc(CHUNKSIZE, sizeof(char));
-		  continue;
-		}  
-		task = check_message_type(message);
-		fprintf(stderr, "Real task nummber %d \n", (int)task);
-		if(task == ERROR)
-		{
-		  get_filename_from_message(message, error_file_path);
-		  fprintf(stderr, "Got task with type ERROR for filename %s \n", error_file_path);
-		  continue;
-		}
-		if(task != expected_type)
-		{
-		  /* push to the end of queue */
-		  fprintf(stderr, "Task was not %s \n", type_name);
-		  push(queue, message);
-		  sleep(1);
-		  continue;
-		}
+		if(check_top_of_queue(type_name, &task, message, expected_type, error_file_path) == 1)
+			continue;
 		else
 		{
 		  clientfd = *targ.socket;
@@ -502,7 +487,7 @@ void* server_send_response_function(void * arg, char * type_name, task_type expe
 	}
 	free(message);
 	free(error_file_path);
-	fprintf(stderr, "Destroing %s thread\n" , type_name);
+	fprintf(stderr, "Destroying %s thread\n" , type_name);
 	pthread_exit(&targ);
 	return NULL;
 }
@@ -523,7 +508,7 @@ int receive_message (int socket, struct sockaddr_in* receiver_addr, char* messag
 	socklen_t size = sizeof(struct sockaddr_in);
 	if(recvfrom(socket, message, CHUNKSIZE, 0, receiver_addr, &size) < 0)
 	{
-	      fprintf(stderr, "Failed receving message\n");
+	      fprintf(stderr, "Failed receiving message\n");
 	      return -1;
 	}
 	/*
@@ -580,7 +565,7 @@ int send_message (int socket, struct sockaddr_in receiver_addr, char* message, c
   int port = receiver_addr.sin_port;
   fprintf(stderr, "Receiver port %d \n", port);
   fprintf(stderr, "Trying to send message %s \n", message_type);
-  
+
   /*
    * int sockfd, const void *buf, size_t len, int flags,
                const struct sockaddr *dest_addr, socklen_t addrlen);
@@ -597,7 +582,7 @@ int send_message (int socket, struct sockaddr_in receiver_addr, char* message, c
    * success
    */
   fprintf(stderr, "Sending message %s succeeded \n", message_type);
-  
+
   strcpy(tmp, message + 3*sizeof(uint32_t)/sizeof(char));
 
   fprintf(stderr, "Real message send =  %s  \n", tmp);
@@ -616,7 +601,7 @@ void free_queue()
 /*
  * create specified file, handle errors
  */
-uint8_t create_file(char* real_file_name, int* filesize, int real_package_size, 
+uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
 				int* package_amount, uint8_t** packages, char* message)
 {
   int fd;
@@ -635,7 +620,7 @@ uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
 		{
 		  if(errno == EINTR)
 		    continue;
-		  else 
+		  else
 		  {
 		    fprintf(stderr, "Could not open file %s %s \n", real_file_name, strerror(errno));
 		    return 1;
@@ -651,7 +636,7 @@ uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
 	      *filesize = get_file_size_from_message(message);
 	      if(*filesize == *filesize / real_package_size * real_package_size)
 		*package_amount = *filesize / real_package_size;
-	      else 
+	      else
 		*package_amount = *filesize / real_package_size + 1;
 	      *packages = (uint8_t*) calloc(*package_amount, sizeof(uint8_t));
 	      if(*packages == NULL)

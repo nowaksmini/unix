@@ -319,7 +319,7 @@ uint8_t wait_for_download_response(char* error_file_path, char* message, task_ty
 }
 
 /*
- * handle packages with id same as thread id an task type DOWNLOAD
+ * handle packages with id same as thread id and task type DOWNLOAD
  */
 void* wait_for_packages(char *message, char* error_file_path, int id, int package_amount, int should_download, char* real_file_name, uint8_t* packages)
 {
@@ -463,6 +463,56 @@ void* wait_for_packages(char *message, char* error_file_path, int id, int packag
 }
 
 /*
+ * wait for delete response
+ */
+void wait_for_delete_response(task_type* task, char* error_file_path, char* old_file_path, char* message, int* id, char* filepath, char* communicate, int* wait_for_delete_raport)
+{
+	int tmpid = -1;
+	int i;
+	while(work)
+	{
+	    if(check_top_of_queue("DELETERESPONSE", task, message, DELETERESPONSE, error_file_path) == 1)
+			continue;
+	    /* waiting for confirmation or rejection of downloading file*/
+	    if(*id == -1)
+	    {
+			/* check the filepath saved in message*/
+			get_filename_from_message(message, filepath);
+			for(i = 0; i < FILENAME; i++)
+			{
+				if(filepath[i] != old_file_path[i])
+				{
+				  fprintf(stderr, "Not this message, wrong filepath \n");
+				  push(queue, message);
+				  break;
+				}
+			}
+			/* filepaths are the same */
+			if(i == FILENAME)
+			{
+			  /* check if id > 0 else show error got from server */
+			  tmpid = get_id_from_message(message);
+			  strcpy(communicate, message + 3 * sizeof(uint32_t)/ sizeof(char) + FILENAME);
+			  if(tmpid == 0)
+			  {
+				/* error with file , show message */
+				fprintf(stdout, "Could not delete  file %s, reason : %s \n", filepath, communicate);
+				*wait_for_delete_raport = 0;
+				break;
+			  }
+			  else
+			  {
+				*id = tmpid;
+				fprintf(stdout, "Server confirmed planned deleting file  %s, message : %s \n", filepath, communicate);
+				fprintf(stdout, "Got id %d \n", *id);
+				break;
+			  }
+			}
+		}
+	}
+}
+
+/*
  * thread function for downloading file
  */
 void *download_thread_function(void *arg)
@@ -513,7 +563,6 @@ void *download_thread_function(void *arg)
 	pthread_exit(&targ);
 	return NULL;
 }
-
 
 void *upload_thread_function(void *arg)
 {
@@ -670,6 +719,9 @@ void *upload_thread_function(void *arg)
 	return NULL;
 }
 
+/*
+ * thread function for deleting file
+ */
 void *delete_thread_function(void *arg)
 {
 	int clientfd;
@@ -703,72 +755,31 @@ void *delete_thread_function(void *arg)
 	/*
 	 * receive communicate from server about confirmation of delete or not
 	 */
-	while(work)
-	{
-	      if(check_top_of_queue("DELETERESPONSE", &task, message, DELETERESPONSE, error_file_path) == 1)
-		continue;
-	      /* waiting for confirmation or rejection of downloading file*/
-	      if(id == -1)
-	      {
-		/* check the filepath saved in message*/
-		get_filename_from_message(message, filepath);
-		for(i = 0; i < FILENAME; i++)
-		{
-		    if(filepath[i] != oldFilePath[i])
-		    {
-		      fprintf(stderr, "Not this message, wrong filepath \n");
-		      push(queue, message);
-		      break;
-		    }
-		}
-		/* filepaths are the same */
-		if(i == FILENAME)
-		{
-		  /* check if id > 0 else show error got from server */
-		  tmpid = get_id_from_message(message);
-		  strcpy(communicate, message + 3 * sizeof(uint32_t)/ sizeof(char) + FILENAME);
-		  if(tmpid == 0)
-		  {
-		    /* error with file , show message */
-		    fprintf(stdout, "Could not delete  file %s, reason : %s \n", filepath, communicate);
-		    wait_for_delete_raport = 0;
-		    break;
-		  }
-		  else
-		  {
-		    id = tmpid;
-		    fprintf(stdout, "Server confirmed planned deleting file  %s, message : %s \n", filepath, communicate);
-		    fprintf(stdout, "Got id %d \n", id);
-		    /* check if file exists if not create else check if is opened if not remove data and write own */
-		    break;
-		  }
-		}
-	      }
-	}
+	wait_for_delete_response(&task, error_file_path, oldFilePath, message, &id, filepath, communicate, &wait_for_delete_raport);
 	
 	fprintf(stderr, "Waiting for datagrams abour deleting file\n");
 
 	while(work && wait_for_delete_raport)
 	{
 	      if(check_top_of_queue("DELETE", &task, message, DELETE, error_file_path) == 1)
-		continue;
+				continue;
 	      else
 	      {
-		  tmpid = get_id_from_message(message);
-		  if(tmpid == id)
-		  {
-		      /*one of datagrams from servers*/
-		      fprintf(stderr, "Id of message and thread are the same \n");
-		      strcpy(communicate, message + 3 * sizeof(uint32_t)/ sizeof(char) + FILENAME);
-		      fprintf(stdout, "Server sends raport about deleting file  %s, message : %s \n", filepath, communicate);
-		      break;
-		  }
-		  else
-		  {
-		    push(queue, message);
-		  }
+			  tmpid = get_id_from_message(message);
+			  if(tmpid == id)
+			  {
+				  /*one of datagrams from servers*/
+				  fprintf(stderr, "Id of message and thread are the same \n");
+				  strcpy(communicate, message + 3 * sizeof(uint32_t)/ sizeof(char) + FILENAME);
+				  fprintf(stdout, "Server sends raport about deleting file  %s, message : %s \n", filepath, communicate);
+				  break;
+			  }
+			  else
+			  {
+				push(queue, message);
+			  }
 	      }
-	  }
+	}
 	free(message);
 	free(error_file_path);
 	fprintf(stderr, "Destroing DELETE thread\n");
@@ -962,7 +973,7 @@ int main(int argc, char **argv)
 
 	generate_register_message(message);
 
-	my_endpoint_listening_addr = make_address(NULL, atoi(argv[1])+1 , 0);
+	my_endpoint_listening_addr = make_address(NULL, rand_range(1000, 65000), 0);
 	socket = connect_socket(0, my_endpoint_listening_addr);
 	broadcast_adrr = make_address(NULL, atoi(argv[1]), 1);
 	broadcastsocket = connect_socket(1, my_endpoint_listening_addr);

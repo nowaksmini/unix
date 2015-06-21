@@ -13,7 +13,7 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <string.h>
-#include <sys/stat.h> 
+#include <sys/stat.h>
 #include <inttypes.h>
 #include <openssl/md5.h>
 #include "library.h"
@@ -29,9 +29,10 @@ void usage(char *name)
 	exit(EXIT_FAILURE);
 }
 
+
 /*
  * message send to client to inform about ability to delete file
- * generating new task id
+ * generating new task id an removing file if can
  */
 void generate_delete_response_message(char* message, int socket, struct sockaddr_in client_addr)
 {
@@ -54,7 +55,7 @@ void generate_delete_response_message(char* message, int socket, struct sockaddr
 	    }
 	}
 	fprintf(stderr, "Empty sign found at position : %d \n", first_empty_sign);
-	real_file_name = (char *)calloc(first_empty_sign , sizeof(char));
+	real_file_name = (char *)calloc(first_empty_sign, sizeof(char));
 	for(i = 0; i < first_empty_sign; i++)
 	{
 	    real_file_name[i] = filepath[i];
@@ -67,7 +68,7 @@ void generate_delete_response_message(char* message, int socket, struct sockaddr
 	{
 	    put_id_to_message(message, message_id);
 	    strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETEERESPONSEERROR);
-	    fprintf(stderr, "Server pushed filename %s and id %u to unsuccessfull delete register response message \n", filepath, message_id);
+	    fprintf(stderr, "Server pushed filename %s and id %u to unsuccessful delete register response message \n", filepath, message_id);
 	    send_message(socket, client_addr, message, DELETERESPONSESTRING);
 	}
 	else
@@ -81,27 +82,24 @@ void generate_delete_response_message(char* message, int socket, struct sockaddr
 	   sleep(1);
 	   while (1)
 	   {
+		  put_id_to_message(message, message_id);
+		  save_massage_type_to_message(DELETE, message);
+		  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
 		  if(remove(real_file_name) < 0)
 		  {
 		    if(errno == EBUSY)
 		      continue;
 		    fprintf(stderr, "Removed file failed %s \n", real_file_name);
-		    put_id_to_message(message, message_id);
-		    save_massage_type_to_message(DELETE, message);
-		    strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
 		    strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETEACCESSDENYIED);
 		    break;
 		  }
 		  else
 		  {
 			  fprintf(stderr, "Removed file %s success\n", real_file_name);
-			  put_id_to_message(message, message_id);
-			  save_massage_type_to_message(DELETE, message);
-			  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
 			  strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETERESPONSESUCCESS);
 			  break;
 		  }
-	   }  
+	   }
 	   send_message(socket, client_addr, message, DELETESTRING);
 	}
 	free(real_file_name);
@@ -158,7 +156,7 @@ void generate_upload_response_message(int* my_id, char* message, int socket, str
 	filesize = get_file_size_from_message(message);
 	      if(filesize == filesize / real_package_size * real_package_size)
 		package_amount = filesize / real_package_size;
-	      else 
+	      else
 		package_amount = filesize / real_package_size + 1;
 	if(tmp_id == 0)
 	{
@@ -207,7 +205,7 @@ void generate_upload_response_message(int* my_id, char* message, int socket, str
 	      {
 		fprintf(stderr, "Checking md5 sums \n");
 		file_contents = read_whole_file (real_file_name);
-		  if(file_contents == NULL) 
+		  if(file_contents == NULL)
 		  {
 		    free (file_contents);
 		    free (package);
@@ -222,8 +220,8 @@ void generate_upload_response_message(int* my_id, char* message, int socket, str
 			    fprintf(stdout, "Wrong md5 sum %s \n", real_file_name);
 			    return;
 			  }
-			}	
-		 
+			}
+
 	      }
 	      else
 	      {
@@ -239,10 +237,10 @@ void generate_upload_response_message(int* my_id, char* message, int socket, str
 
 	    }
 	}
-	
+
 	sleep(1);
-		
-	
+
+
 	free (file_contents);
 	free (package);
 	free(real_file_name);
@@ -324,7 +322,7 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 		  put_id_to_message(message, id);
 		  put_size_to_message((uint32_t)size, message);
 		  file_contents = read_whole_file (real_file_name);
-		  if(file_contents == NULL) 
+		  if(file_contents == NULL)
 		  {
 		    free (file_contents);
 		    free (package);
@@ -340,9 +338,9 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 	   }
 	}
 	send_message(socket, client_addr, message, DOWNLOADRESPONSESTRING);
-	
+
 	sleep(1);
-	/* 
+	/*
 	 * clear message
 	 */
 	memset(message, 0, CHUNKSIZE);
@@ -355,9 +353,9 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 	{
 	  if(strlen(file_contents) == strlen(file_contents) / real_package_size * real_package_size)
 	    package_amount = strlen(file_contents) / real_package_size;
-	  else 
+	  else
 	    package_amount = strlen(file_contents) / real_package_size + 1;
-	  
+
 	  for(i = 0; i < package_amount; i++)
 	  {
 	      memset(message, 0, CHUNKSIZE);
@@ -429,7 +427,7 @@ void *server_send_upload_response_function(void *arg)
 		  sleep(2);
 		  message = calloc(CHUNKSIZE, sizeof(char));
 		  continue;
-		}      
+		}
 		task = check_message_type(message);
 		fprintf(stderr, "Real task nummber %d \n", (int)task);
 		if(task == ERROR)
@@ -455,7 +453,8 @@ void *server_send_upload_response_function(void *arg)
 		  break;
 		}
 	}
-	fprintf(stderr, "Destroing upload thread\n");
+	fprintf(stderr, "Destroing UPLOAD thread\n");
+	
 	pthread_exit(&targ);
 	return NULL;
 }
@@ -478,9 +477,9 @@ int make_socket()
 	/*
 	 * enables binding many times to same port
 	 */
-	if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(t))) 
+	if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(t)))
 	      ERR("setsockopt");
-	
+
 	return sock;
 }
 
@@ -492,6 +491,7 @@ struct sockaddr_in make_address(uint16_t port)
 	struct sockaddr_in addr;
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(port);
+	fprintf(stderr, "My addres %u \n", htons(port));
 	/*
 	* receving from anybody
 	*/
@@ -543,7 +543,7 @@ void *server_send_register_response_function(void *arg)
 		  sleep(2);
 		  message = calloc(CHUNKSIZE, sizeof(char));
 		  continue;
-		}    
+		}
 		task = check_message_type(message);
 		fprintf(stderr, "Real task nummber %d \n", (int)task);
 		if(task == ERROR)
@@ -643,7 +643,6 @@ void do_work(int socket)
     fprintf(stderr,"Server has terminated.\n");
 }
 
-/* TO DO */
 
 int main(int argc, char **argv)
 {
@@ -663,12 +662,12 @@ int main(int argc, char **argv)
 		ERR("chdir");
 	sethandler(SIG_IGN, SIGPIPE);
 	sethandler(siginthandler, SIGINT);
-	
+
 	my_endpoint_listening_addr = make_address(atoi(argv[1]));
-	
+
 	socket = connect_socket(my_endpoint_listening_addr);
-	
-	queue = createQueue(100);
+
+	queue = createQueue(QUEUECAPACITY);
 	fprintf(stderr, "Created queue \n");
 
 	do_work(socket);
