@@ -29,12 +29,19 @@ void usage(char *name)
 	exit(EXIT_FAILURE);
 }
 
+void generate_failed_delete_response(char* message, int message_id, char* filepath, int socket, struct sockaddr_in client_addr)
+{
+	put_id_to_message(message, message_id);
+	strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETEERESPONSEERROR);
+	fprintf(stderr, "Server pushed filename %s and id %u to unsuccessful delete register response message \n", filepath, message_id);
+	send_message(socket, client_addr, message, DELETERESPONSESTRING);
+}
 
 /*
  * message send to client to inform about ability to delete file
  * generating new task id an removing file if can
  */
-void generate_delete_response_message(char* message, int socket, struct sockaddr_in client_addr)
+void generate_delete_response_message(task_type task, char* message, int socket, struct sockaddr_in client_addr)
 {
 	int i;
 	int fd = -1;;
@@ -48,17 +55,21 @@ void generate_delete_response_message(char* message, int socket, struct sockaddr
 
 	for(i = 0; i < FILENAME; i++)
 	{
-	    if(filepath[i] == '\0' || filepath[i] == '\n')
-	    {
-	      first_empty_sign = i;
-	      break;
-	    }
+		if(filepath[i] == '\0' || filepath[i] == '\n')
+		{
+			first_empty_sign = i;
+			break;
+		}
 	}
 	fprintf(stderr, "Empty sign found at position : %d \n", first_empty_sign);
 	real_file_name = (char *)calloc(first_empty_sign, sizeof(char));
+	if(real_file_name == NULL)
+	{
+		generate_failed_delete_response(message, message_id, filepath, socket, client_addr);
+	}
 	for(i = 0; i < first_empty_sign; i++)
 	{
-	    real_file_name[i] = filepath[i];
+		real_file_name[i] = filepath[i];
 	}
 	fprintf(stderr, "Real file name : %s \n", real_file_name);
 	fprintf(stderr, "Real file name size %zu \n", strlen(real_file_name));
@@ -66,41 +77,38 @@ void generate_delete_response_message(char* message, int socket, struct sockaddr
 	strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
 	if(open_file(real_file_name, &fd) == 1)
 	{
-	    put_id_to_message(message, message_id);
-	    strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETEERESPONSEERROR);
-	    fprintf(stderr, "Server pushed filename %s and id %u to unsuccessful delete register response message \n", filepath, message_id);
-	    send_message(socket, client_addr, message, DELETERESPONSESTRING);
+		generate_failed_delete_response(message, message_id, filepath, socket, client_addr);
 	}
 	else
 	{
-	   id = id + 1;
-	   message_id = id;
-	   put_id_to_message(message, message_id);
-	   strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
-	   strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETERESPONSESUCCESS);
-	   send_message(socket, client_addr, message, DELETERESPONSESTRING);
-	   sleep(1);
-	   while (1)
-	   {
-		  put_id_to_message(message, message_id);
-		  save_massage_type_to_message(DELETE, message);
-		  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
-		  if(remove(real_file_name) < 0)
-		  {
-		    if(errno == EBUSY)
-		      continue;
-		    fprintf(stderr, "Removed file failed %s \n", real_file_name);
-		    strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETEACCESSDENYIED);
-		    break;
-		  }
-		  else
-		  {
-			  fprintf(stderr, "Removed file %s success\n", real_file_name);
-			  strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETERESPONSESUCCESS);
-			  break;
-		  }
-	   }
-	   send_message(socket, client_addr, message, DELETESTRING);
+		id = id + 1;
+		message_id = id;
+		put_id_to_message(message, message_id);
+		strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
+		strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETERESPONSESUCCESS);
+		send_message(socket, client_addr, message, DELETERESPONSESTRING);
+		sleep(1);
+		while (1)
+		{
+			put_id_to_message(message, message_id);
+			save_massage_type_to_message(DELETE, message);
+			strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
+			if(remove(real_file_name) < 0)
+			{
+				if(errno == EBUSY)
+					continue;
+				fprintf(stderr, "Removed file failed %s \n", real_file_name);
+				strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETEACCESSDENYIED);
+				break;
+			}
+			else
+			{
+				fprintf(stderr, "Removed file %s success\n", real_file_name);
+				strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETERESPONSESUCCESS);
+				break;
+			}
+		}
+		send_message(socket, client_addr, message, DELETESTRING);
 	}
 	free(real_file_name);
 }
@@ -113,7 +121,7 @@ void generate_delete_response_message(char* message, int socket, struct sockaddr
  */
 void generate_upload_response_message(int* my_id, char* message, int socket, struct sockaddr_in client_addr)
 {
-	int fd; /*file desriptor */
+	int fd; /*file descriptor */
 	int i;
 	struct stat sts;
 	char filepath[FILENAME];
@@ -139,103 +147,103 @@ void generate_upload_response_message(int* my_id, char* message, int socket, str
 	tmp_id = get_id_from_message(message);
 	for(i = 0; i < FILENAME; i++)
 	{
-	    if(filepath[i] == '\0' || filepath[i] == '\n')
-	    {
-	      first_empty_sign = i;
-	      break;
-	    }
+		if(filepath[i] == '\0' || filepath[i] == '\n')
+		{
+			first_empty_sign = i;
+			break;
+		}
 	}
 	fprintf(stderr, "Empty sign found at position : %d \n", first_empty_sign);
 	real_file_name = calloc(first_empty_sign , sizeof(char));
 	for(i = 0; i < first_empty_sign; i++)
 	{
-	    real_file_name[i] = filepath[i];
+		real_file_name[i] = filepath[i];
 	}
 	fprintf(stderr, "Real file name : %s \n", real_file_name);
 	fprintf(stderr, "Real file name size %zu \n", strlen(real_file_name));
 	filesize = get_file_size_from_message(message);
-	      if(filesize == filesize / real_package_size * real_package_size)
+	if(filesize == filesize / real_package_size * real_package_size)
 		package_amount = filesize / real_package_size;
-	      else
+	else
 		package_amount = filesize / real_package_size + 1;
 	if(tmp_id == 0)
 	{
-	    if (stat(real_file_name, &sts) == -1 && errno == ENOENT)
-	    {
-	      /* no such file, id is 0 */
-	      id = id + 1;
-	      *my_id = id;
-	      save_massage_type_to_message(UPLOADROSPONSE, message);
-	      put_id_to_message(message, id);
-	      strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
-	      strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, UPLOADRESPONSESUCCESS);
-	      fd = open(real_file_name, O_RDWR | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH);
-	      fprintf(stderr, "Creating new file \n");
-	      buf = calloc(filesize, sizeof(char));
-	      for(i = 0; i< filesize; i++)
-		buf[i] = '0';
-	      bulk_write(fd, buf, filesize);
-	      fprintf(stderr, "Server pushed filename %s and id %u to successfull upload register response message \n", filepath, id);
-	      send_message(socket, client_addr, message, UPLOADRESPONSESTRING);
-	      close(fd);
+		if (stat(real_file_name, &sts) == -1 && errno == ENOENT)
+		{
+			/* no such file, id is 0 */
+			id = id + 1;
+			*my_id = id;
+			save_massage_type_to_message(UPLOADROSPONSE, message);
+			put_id_to_message(message, id);
+			strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
+			strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, UPLOADRESPONSESUCCESS);
+			fd = open(real_file_name, O_RDWR | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH);
+			fprintf(stderr, "Creating new file \n");
+			buf = calloc(filesize, sizeof(char));
+			for(i = 0; i< filesize; i++)
+				buf[i] = '0';
+			bulk_write(fd, buf, filesize);
+			fprintf(stderr, "Server pushed filename %s and id %u to successfull upload register response message \n", filepath, id);
+			send_message(socket, client_addr, message, UPLOADRESPONSESTRING);
+			close(fd);
 
-	    }
-	    else
-	    {
-	      save_massage_type_to_message(UPLOADROSPONSE, message);
-	      put_id_to_message(message,message_id);
-	      strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
-	      strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, UPLOADRESPONSEERROR);
-	      fprintf(stderr, "Server pushed filename %s and id %u to unsuccessfull upload register response message \n", filepath, id);
-	      send_message(socket, client_addr, message, UPLOADRESPONSESTRING);
-	      return;
-	    }
+		}
+		else
+		{
+			save_massage_type_to_message(UPLOADROSPONSE, message);
+			put_id_to_message(message,message_id);
+			strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
+			strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, UPLOADRESPONSEERROR);
+			fprintf(stderr, "Server pushed filename %s and id %u to unsuccessfull upload register response message \n", filepath, id);
+			send_message(socket, client_addr, message, UPLOADRESPONSESTRING);
+			return;
+		}
 	}
 	else
 	{
-	    if(tmp_id != *my_id)
-	    {
-		  push(queue, message);
-	    }
-	    else
-	    {
-	      fprintf(stderr, "Got data for update \n");
-	      package_number = get_file_size_from_message(message);
-	      if(package_number == package_amount)
-	      {
-		fprintf(stderr, "Checking md5 sums \n");
-		file_contents = read_whole_file (real_file_name);
-		  if(file_contents == NULL)
-		  {
-		    free (file_contents);
-		    free (package);
-		    free(real_file_name);
-		    return;
-		  }
-		 compute_md5(file_contents, md5_sum);
-		 for(i = 0; i< MD5LENGTH; i++)
+		if(tmp_id != *my_id)
+		{
+			push(queue, message);
+		}
+		else
+		{
+			fprintf(stderr, "Got data for update \n");
+			package_number = get_file_size_from_message(message);
+			if(package_number == package_amount)
 			{
-			  if(md5_sum[i] != package[i])
-			  {
-			    fprintf(stdout, "Wrong md5 sum %s \n", real_file_name);
-			    return;
-			  }
+				fprintf(stderr, "Checking md5 sums \n");
+				file_contents = read_whole_file (real_file_name);
+				if(file_contents == NULL)
+				{
+					free (file_contents);
+					free (package);
+					free(real_file_name);
+					return;
+				}
+				compute_md5(file_contents, md5_sum);
+				for(i = 0; i< MD5LENGTH; i++)
+				{
+					if(md5_sum[i] != package[i])
+					{
+						fprintf(stdout, "Wrong md5 sum %s \n", real_file_name);
+						return;
+					}
+				}
+
+			}
+			else
+			{
+				fprintf(stderr, "Write data to uploade file");
+				fd = open(real_file_name, O_RDWR | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH);
+				strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char) + FILENAME);
+				file = fopen(real_file_name, "w");
+				fputs(package, file);
+				fseek(file, package_number * real_package_size, SEEK_SET);
+				fclose(file);
+				close(fd);
 			}
 
-	      }
-	      else
-	      {
-		fprintf(stderr, "Write data to uploade file");
-		fd = open(real_file_name, O_RDWR | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH);
-		strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char) + FILENAME);
-		file = fopen(real_file_name, "w");
-		fputs(package, file);
-		fseek(file, package_number * real_package_size, SEEK_SET);
-		fclose(file);
-		close(fd);
-	      }
-
-	    }
+		}
 	}
 
 	sleep(1);
@@ -246,20 +254,115 @@ void generate_upload_response_message(int* my_id, char* message, int socket, str
 	free(real_file_name);
 }
 
-/* TO DO */
+/*
+ * generate message to inform client about any error during download task
+ */
+void generate_failed_download(char* message, char * filepath, int message_id)
+{
+	save_massage_type_to_message(DOWNLOADRESPONSE, message);
+	put_id_to_message(message, message_id);
+	strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
+	strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DOWNLOADRESPONSEERROR);
+	fprintf(stderr, "Server pushed filename %s to unsuccessfull download register response message \n", filepath);
+}
 
 /*
- * function for responding for download request,
- * checks if file exists, sends information about file size (DOWNLOADRESPONSE, FILESIZE, DOWNLOADSUCCESS)
- * or (DOWNLOADRESPONSE, -1, DOWNLOADFAILED).
- * if file exists tries to open if and than reads from it and sends parts to client
- * (DOWNLOAD, Number_of_part, data);
+ * send download response, return 1 if error, 0 means that client can download file
  */
-void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
+uint8_t generate_download_response_message(char* real_file_name, char* message, char* filepath, int message_id, char** file_contents, unsigned char* md5_sum,
+		int* tmp_id, int* size)
 {
-	int fd; /*file desriptor */
-	int i, j;
+	int fd;
 	struct stat sts;
+	if (stat(real_file_name, &sts) == -1)
+	{
+		generate_failed_download(message, filepath, message_id);
+		return 1;
+	}
+	else
+	{
+		*size = sts.st_size;
+		if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDONLY))) == -1)
+		{
+			fprintf(stderr, "Could not open file %s \n", real_file_name);
+			generate_failed_download(message, filepath, message_id);
+			return 1;
+		}
+		else
+		{
+			id = id + 1;
+			*tmp_id = id;
+			put_id_to_message(message, id);
+			put_size_to_message((uint32_t)*size, message);
+			*file_contents = read_whole_file (real_file_name);
+			if(file_contents == NULL)
+			{
+				generate_failed_download(message, filepath, message_id);
+				return 1;
+			}
+			compute_md5(*file_contents, md5_sum);
+			strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
+			strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DOWNLOADRESPONSESUCCESS);
+		}
+		close_file(&fd, real_file_name);
+	}
+	return 0;
+}
+
+void send_file_packages(task_type task, char* task_message, char* message, int tmp_id, char* file_contents, char* package, unsigned char* md5_sum,
+		int socket, struct sockaddr_in client_addr)
+{
+	int i, j;
+	int package_amount;
+	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
+	save_massage_type_to_message(task, message);
+	put_id_to_message(message, tmp_id);
+	if(tmp_id != 0)
+	{
+		if(strlen(file_contents) == strlen(file_contents) / real_package_size * real_package_size)
+			package_amount = strlen(file_contents) / real_package_size;
+		else
+			package_amount = strlen(file_contents) / real_package_size + 1;
+
+		for(i = 0; i < package_amount; i++)
+		{
+			memset(message, 0, CHUNKSIZE);
+			save_massage_type_to_message(task, message);
+			for(j = 0; j < real_package_size; j ++)
+			{
+				if(i * real_package_size + j < strlen(file_contents))
+				{
+					package[j] = file_contents[i * real_package_size + j];
+				}
+				else
+				{
+					package[j] = '\0';
+				}
+			}
+			put_id_to_message(message,tmp_id);
+			put_size_to_message((uint32_t)i, message);
+			strcpy(message + 3*sizeof(uint32_t)/sizeof(char), package);
+			fprintf(stderr, "Sending data package number %d for task id %d : %s \n", i, tmp_id, package);
+			send_message(socket, client_addr, message, task_message);
+			sleep(1);
+		}
+		memset(message, 0, CHUNKSIZE);
+		save_massage_type_to_message(task, message);
+		put_size_to_message((uint32_t)i, message);
+		put_id_to_message(message,tmp_id);
+		fprintf(stderr, "Sending md5 sum for task id %d \n", tmp_id);
+		strcpy(message + 3*sizeof(uint32_t)/sizeof(char), (char*)md5_sum);
+		send_message(socket, client_addr, message, task_message);
+		sleep(1);
+	}
+}
+
+/*
+ * function for responding for download request and list request
+ */
+void read_file(task_type task, char* messagein, int socket, struct sockaddr_in client_addr)
+{
+	int i;
 	char filepath[FILENAME];
 	char message[CHUNKSIZE];
 	char * real_file_name;
@@ -268,11 +371,16 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 	int first_empty_sign = FILENAME - 1;
 	int message_id = 0;
 	int tmp_id;
-	int package_amount;
 	char * file_contents;
 	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
 	char *package;
+	char * task_message;
 	package = malloc(real_package_size);
+	if(package == NULL)
+	{
+		fprintf(stderr, "Problem with allocation memory for package \n");
+		return;
+	}
 	memset(message, 0, CHUNKSIZE);
 	memset(filepath, 0, FILENAME);
 	memset(md5_sum, 0, MD5LENGTH);
@@ -281,182 +389,96 @@ void readfile(char* messagein, int socket, struct sockaddr_in client_addr)
 
 	for(i = 0; i < FILENAME; i++)
 	{
-	    if(filepath[i] == '\0' || filepath[i] == '\n')
-	    {
-	      first_empty_sign = i;
-	      break;
-	    }
+		if(filepath[i] == '\0' || filepath[i] == '\n')
+		{
+			first_empty_sign = i;
+			break;
+		}
 	}
 	fprintf(stderr, "Empty sign found at position : %d \n", first_empty_sign);
 	real_file_name = calloc(first_empty_sign , sizeof(char));
+	if(real_file_name == NULL)
+	{
+		fprintf(stderr, "Problem with allocation memory for file name \n");
+		free(package);
+		return;
+	}
 	for(i = 0; i < first_empty_sign; i++)
 	{
-	    real_file_name[i] = filepath[i];
+		real_file_name[i] = filepath[i];
 	}
 	fprintf(stderr, "Real file name : %s \n", real_file_name);
 	fprintf(stderr, "Real file name size %zu \n", strlen(real_file_name));
-	if (stat(real_file_name, &sts) == -1 && errno == ENOENT)
-	{
-	  /* no such file, id is 0 */
-	  save_massage_type_to_message(REGISTERRESPONSE, message);
-	  put_id_to_message(message, message_id);
-	  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
-	  strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DOWNLOADRESPONSEERROR);
-	  fprintf(stderr, "Server pushed filename %s and id %u to unsuccessfull download register response message \n", filepath, message_id);
-	  return;
-	}
-	else
-	{
-	   size = sts.st_size;
-	   id = id + 1;
-	   tmp_id = id;
-	   if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDONLY))) == -1)
-	   {
-		  fprintf(stderr, "Could not open file %s \n", real_file_name);
-		  put_id_to_message(message, message_id);
-		  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
-		  strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DOWNLOADRESPONSEERROR);
-	   }
-	   else
-	   {
-		  put_id_to_message(message, id);
-		  put_size_to_message((uint32_t)size, message);
-		  file_contents = read_whole_file (real_file_name);
-		  if(file_contents == NULL)
-		  {
-		    free (file_contents);
-		    free (package);
-		    free(real_file_name);
-		  }
-		  compute_md5(file_contents, md5_sum);
-		  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
-		  strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DOWNLOADRESPONSESUCCESS);
-	   }
-	   if (TEMP_FAILURE_RETRY(close(fd)) == -1)
-	   {
-	     fprintf(stderr, "Could not close file %s \n", real_file_name);
-	   }
-	}
-	send_message(socket, client_addr, message, DOWNLOADRESPONSESTRING);
 
-	sleep(1);
-	/*
-	 * clear message
-	 */
-	memset(message, 0, CHUNKSIZE);
-	/*
-	 * divide whole file to smaller one packages of size CHUNKSIZE - TYPE_LENGTH - TASK_ID_LENGTH - PACKAGE_NUMBER
-	 */
-	save_massage_type_to_message(DOWNLOAD, message);
-	put_id_to_message(message, tmp_id);
-	if(tmp_id != 0)
+	if(generate_download_response_message(real_file_name, message, filepath, message_id, &file_contents, md5_sum, &tmp_id, &size) == 0)
 	{
-	  if(strlen(file_contents) == strlen(file_contents) / real_package_size * real_package_size)
-	    package_amount = strlen(file_contents) / real_package_size;
-	  else
-	    package_amount = strlen(file_contents) / real_package_size + 1;
-
-	  for(i = 0; i < package_amount; i++)
-	  {
-	      memset(message, 0, CHUNKSIZE);
-	      save_massage_type_to_message(DOWNLOAD, message);
-	      fprintf(stderr, "BEFORE \n");
-	      for(j = 0; j < real_package_size; j ++)
-	      {
-		if(i * real_package_size + j < strlen(file_contents))
-		{
-		  package[j] = file_contents[i * real_package_size + j];
-		}
+		send_message(socket, client_addr, message, DOWNLOADRESPONSESTRING);
+		sleep(1);
+		/*
+		 * clear message
+		 */
+		memset(message, 0, CHUNKSIZE);
+		/*
+		 * divide whole file to smaller one packages of size CHUNKSIZE - TYPE_LENGTH - TASK_ID_LENGTH - PACKAGE_NUMBER
+		 */
+		if(task == DELETE)
+			task_message = DELETESTRING;
 		else
-		{
-		  package[j] = '\0';
-		}
-	      }
-	      put_id_to_message(message,tmp_id);
-	      put_size_to_message((uint32_t)i, message);
-	      strcpy(message + 3*sizeof(uint32_t)/sizeof(char), package);
-	      fprintf(stderr, "Sending data package number %d for task id %d : %s \n", i, tmp_id, package);
-	      send_message(socket, client_addr, message, DOWNLOADSTRING);
-	      sleep(1);
-	  }
-	  memset(message, 0, CHUNKSIZE);
-	  save_massage_type_to_message(DOWNLOAD, message);
-	  put_size_to_message((uint32_t)i, message);
-	  put_id_to_message(message,tmp_id);
-	  fprintf(stderr, "Sending md5 sum for task id %d \n", tmp_id);
-	  strcpy(message + 3*sizeof(uint32_t)/sizeof(char), (char*)md5_sum);
-	  send_message(socket, client_addr, message, DOWNLOADSTRING);
-	  sleep(1);
+			task_message = LISTSTRING;
+		send_file_packages(task, task_message, message, tmp_id, file_contents, package, md5_sum,
+				socket, client_addr);
 	}
 	free (file_contents);
 	free (package);
 	free(real_file_name);
+	return;
 }
 
+/*
+ * message send to client to inform about server address
+ */
+void generate_register_response_message(char* message)
+{
+	memset(message, 0, CHUNKSIZE);
+	save_massage_type_to_message(REGISTERRESPONSE, message);
+	strcpy(message + 3*sizeof(uint32_t)/sizeof(char), REGISTERRESPONSESUCCESS);
+}
+
+/*
+ * send register response confirmation
+ */
+void send_register_response(task_type task, char* messagein, int socket, struct sockaddr_in client_addr)
+{
+	generate_register_response_message(messagein);
+	if(send_message(socket, client_addr, messagein, REGISTERRESPONSESTRING) < 0)
+	{
+		ERR("SEND REGISTERRESPONSE");
+	}
+}
+
+void *server_send_register_response_function(void *arg)
+{
+	return server_send_response_function(arg, "REGISTER", REGISTER, send_register_response);
+}
 
 void *server_send_download_response_function(void *arg)
 {
-	return server_send_response_function(arg, "DOWNLOAD", DOWNLOAD, readfile);
+	return server_send_response_function(arg, "DOWNLOAD", DOWNLOAD, read_file);
 }
 
+void *server_send_list_response_function(void *arg)
+{
+	return server_send_response_function(arg, "LIST", LIST, read_file);
+}
 
 void *server_send_delete_response_function(void *arg)
 {
 	return server_send_response_function(arg, "DELETE", DELETE, generate_delete_response_message);
 }
 
-/* TO DO */
 void *server_send_upload_response_function(void *arg)
 {
-	int clientfd;
-	struct sockaddr_in client_addr;
-	thread_arg targ;
-	char* message;
-	memcpy(&targ, arg, sizeof(targ));
-	task_type task = NONE;
-	int my_id;
-	char* error_file_path;
-	error_file_path = (char *)calloc(FILENAME, sizeof(char));
-	message = calloc(CHUNKSIZE, sizeof(char));
-	while (work)
-	{
-		/* top from queue */
-		if (top(queue, message) < 0)
-		{
-		  fprintf(stderr, "Queue is empty, nothing to show \n");
-		  sleep(2);
-		  message = calloc(CHUNKSIZE, sizeof(char));
-		  continue;
-		}
-		task = check_message_type(message);
-		fprintf(stderr, "Real task nummber %d \n", (int)task);
-		if(task == ERROR)
-		{
-		  get_filename_from_message(message, error_file_path);
-		  fprintf(stderr, "Got task with type ERROR for filename %s \n", error_file_path);
-		  continue;
-		}
-		if(task != UPLOAD)
-		{
-		  /* push to the end of queue */
-		  fprintf(stderr, "Task was not UPLOAD \n");
-		  push(queue, message);
-		  sleep(1);
-		  continue;
-		}
-		else
-		{
-		  clientfd = *targ.socket;
-		  client_addr = *targ.server_addr;
-		  generate_upload_response_message(&my_id, message, clientfd, client_addr);
-		  sleep(1);
-		  break;
-		}
-	}
-	fprintf(stderr, "Destroing UPLOAD thread\n");
-	
-	pthread_exit(&targ);
-	return NULL;
+	return server_send_response_function(arg, "UPDATE", UPLOAD, read_file);
 }
 
 /*
@@ -478,23 +500,23 @@ int make_socket()
 	 * enables binding many times to same port
 	 */
 	if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &t, sizeof(t)))
-	      ERR("setsockopt");
+		ERR("setsockopt");
 
 	return sock;
 }
 
 /*
- * create ip scructure from ip written in char array and port
+ * create ip structure from ip written in char array and port
  */
 struct sockaddr_in make_address(uint16_t port)
 {
 	struct sockaddr_in addr;
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(port);
-	fprintf(stderr, "My addres %u \n", htons(port));
+	fprintf(stderr, "My address %u \n", htons(port));
 	/*
-	* receving from anybody
-	*/
+	 * receiving from anybody
+	 */
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	return addr;
 }
@@ -507,155 +529,95 @@ int connect_socket(struct sockaddr_in address)
 	int socketfd;
 	socketfd = make_socket();
 	if(bind(socketfd, (struct sockaddr*) &address, sizeof(address)) < 0)
-	  ERR("bind");
+		ERR("bind");
 	return socketfd;
 }
 
 /*
- * message send to client to inform about server address
+ * create threads
  */
-void generate_register_response_message(char* message)
-{
-	memset(message, 0, CHUNKSIZE);
-	save_massage_type_to_message(REGISTERRESPONSE, message);
-	strcpy(message + 3*sizeof(uint32_t)/sizeof(char), REGISTERRESPONSESUCCESS);
-}
-
-/* TO DO */
-
-void *server_send_register_response_function(void *arg)
-{
-	int clientfd;
-	struct sockaddr_in client_addr;
-	thread_arg targ;
-	char* message;
-	memcpy(&targ, arg, sizeof(targ));
-	task_type task = NONE;
-	char* error_file_path;
-	error_file_path = (char *)calloc(FILENAME, sizeof(char));
-	message = calloc(CHUNKSIZE, sizeof(char));
-	while (work)
-	{
-		/* top from queue */
-		if (top(queue, message) < 0)
-		{
-		  fprintf(stderr, "Queue is empty, nothing to show \n");
-		  sleep(2);
-		  message = calloc(CHUNKSIZE, sizeof(char));
-		  continue;
-		}
-		task = check_message_type(message);
-		fprintf(stderr, "Real task nummber %d \n", (int)task);
-		if(task == ERROR)
-		{
-		  get_filename_from_message(message, error_file_path);
-		  fprintf(stderr, "Got task with type ERROR for filename %s \n", error_file_path);
-		  continue;
-		}
-		if(task != REGISTER)
-		{
-		  /* push to the end of queue */
-		  fprintf(stderr, "Task was not REGISTER \n");
-		  push(queue, message);
-		  sleep(1);
-		  continue;
-		}
-		else
-		{
-		  clientfd = *targ.socket;
-		  client_addr = *targ.server_addr;
-		  generate_register_response_message(message);
-		  if(send_message(clientfd, client_addr, message, REGISTERRESPONSESTRING) < 0)
-		  {
-		    ERR("SEND REGISTERRESPONSE");
-		  }
-		  sleep(1);
-		  break;
-		}
-	}
-	pthread_exit(&targ);
-	return NULL;
-}
-
-
-
 void init(pthread_t *thread, thread_arg *targ, int *socket, struct sockaddr_in* client_addr, task_type task)
 {
 	targ[0].socket = socket;
 	targ[0].server_addr = client_addr;
-	if(task == REGISTER)
+	switch(task)
 	{
-	  if (pthread_create(&thread[0], NULL, server_send_register_response_function, (void *) &targ[0]) != 0)
-		ERR("pthread_create");
-	}
-	if(task == DOWNLOAD)
-	{
-	   if (pthread_create(&thread[0], NULL, server_send_download_response_function, (void *) &targ[0]) != 0)
-		ERR("pthread_create");
-	}
-	if(task == DELETE)
-	{
-	   if (pthread_create(&thread[0], NULL, server_send_delete_response_function, (void *) &targ[0]) != 0)
-		ERR("pthread_create");
-	}
-	if(task == UPLOAD)
-	{
-	   if (pthread_create(&thread[0], NULL, server_send_upload_response_function, (void *) &targ[0]) != 0)
-		ERR("pthread_create");
+	case REGISTER:
+		if (pthread_create(&thread[0], NULL, server_send_register_response_function, (void *) &targ[0]) != 0)
+			ERR("pthread_create");
+		break;
+	case DOWNLOAD:
+		if (pthread_create(&thread[0], NULL, server_send_download_response_function, (void *) &targ[0]) != 0)
+			ERR("pthread_create");
+		break;
+	case DELETE:
+		if (pthread_create(&thread[0], NULL, server_send_delete_response_function, (void *) &targ[0]) != 0)
+			ERR("pthread_create");
+		break;
+	case UPLOAD:
+		if (pthread_create(&thread[0], NULL, server_send_upload_response_function, (void *) &targ[0]) != 0)
+			ERR("pthread_create");
+		break;
+	case LIST:
+		if (pthread_create(&thread[0], NULL, server_send_list_response_function, (void *) &targ[0]) != 0)
+			ERR("pthread_create");
+		break;
+	default:
+		ERR("INIT");
 	}
 }
 
 /*
- * main thread fnction receiving all communicated and creating new threads
+ * main thread function receiving all communicated and creating new threads
  */
 void do_work(int socket)
 {
-    char message[CHUNKSIZE];
-    task_type task;
-    struct sockaddr_in client_addr;
-    pthread_t thread;
-    thread_arg targ;
-    while(work)
-    {
-	      if(receive_message(socket, &client_addr, message) < 0)
-	      {
-		fprintf(stderr, "Receiving message \n");
-	      }
-	      /* receive the message */
-	      else
-	      {
-		  fprintf(stderr, "Trying to generate threads \n");
-		  /* create threads and/or push message to queue */
-		  task = check_message_type(message);
-		  if(task == REGISTER || task == DOWNLOAD || task == DELETE || task == UPLOAD)
-		  {
-		      push(queue, message);
-		      init(&thread, &targ, &socket, &client_addr, task);
-		  }
-		  else
-		  {
-		      fprintf(stderr, "Else : %s \n", message + sizeof(uint32_t)/sizeof(char));
-		  }
-	      }
-    }
-    if(TEMP_FAILURE_RETRY(close(socket)) < 0)
-	    ERR("CLOSE");
-    fprintf(stderr,"Server has terminated.\n");
+	char message[CHUNKSIZE];
+	task_type task;
+	struct sockaddr_in client_addr;
+	pthread_t thread;
+	thread_arg targ;
+	while(work)
+	{
+		if(receive_message(socket, &client_addr, message) < 0)
+		{
+			fprintf(stderr, "Receiving message \n");
+		}
+		/* receive the message */
+		else
+		{
+			fprintf(stderr, "Trying to generate threads \n");
+			/* create threads and/or push message to queue */
+			task = check_message_type(message);
+			if(task == REGISTER || task == DOWNLOAD || task == DELETE || task == UPLOAD || task == LIST)
+			{
+				push(queue, message);
+				init(&thread, &targ, &socket, &client_addr, task);
+			}
+			else
+			{
+				fprintf(stderr, "Else : %s \n", message + sizeof(uint32_t)/sizeof(char));
+			}
+		}
+	}
+	if(TEMP_FAILURE_RETRY(close(socket)) < 0)
+		ERR("CLOSE");
+	fprintf(stderr,"Server has terminated.\n");
 }
 
 
 int main(int argc, char **argv)
 {
 	/*
-	 * my_endpoint_listening_addr - adress for listening from everybody
+	 * my_endpoint_listening_addr - address for listening from everybody
 	 */
 	struct sockaddr_in  my_endpoint_listening_addr;
 
 	/*
-	 * socket for sending and reciving data from specified address
+	 * socket for sending and receiving data from specified address
 	 */
 	int socket;
-        work = 1;
+	work = 1;
 	if (argc!=3)
 		usage(argv[0]);
 	if (chdir(argv[2]) == -1)

@@ -24,7 +24,7 @@
  */
 int rand_range(int min_n, int max_n)
 {
-    return rand() % (max_n - min_n + 1) + min_n;
+	return rand() % (max_n - min_n + 1) + min_n;
 }
 
 /*
@@ -64,10 +64,10 @@ void siginthandler(int sig)
  */
 void compute_md5(char *str, unsigned char * sum) {
 
-    MD5_CTX ctx;
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, str, strlen(str));
-    MD5_Final(sum, &ctx);
+	MD5_CTX ctx;
+	MD5_Init(&ctx);
+	MD5_Update(&ctx, str, strlen(str));
+	MD5_Final(sum, &ctx);
 }
 
 /* crateQueue function takes argument the maximum number of elements the Queue can hold,
@@ -75,16 +75,16 @@ void compute_md5(char *str, unsigned char * sum) {
  */
 Queue * createQueue(int maxElements)
 {
-        /* Create a Queue */
-        Queue *Q;
-        Q = (Queue *)malloc(sizeof(Queue));
-        /* Initialise it's properties */
-        Q->elements = (char *)calloc(maxElements*CHUNKSIZE, sizeof(char));
-        Q->size = 0;
-        Q->capacity = maxElements;
-        /* Return the pointer */
-        Q->busy = 0;
-        return Q;
+	/* Create a Queue */
+	Queue *Q;
+	Q = (Queue *)malloc(sizeof(Queue));
+	/* Initialize it's properties */
+	Q->elements = (char *)calloc(maxElements*CHUNKSIZE, sizeof(char));
+	Q->size = 0;
+	Q->capacity = maxElements;
+	/* Return the pointer */
+	Q->busy = 0;
+	return Q;
 }
 
 /*
@@ -96,20 +96,20 @@ void push(Queue* queue, char* message)
 	int move;
 	while(queue->busy)
 	{
-	  sleep(1);
+		sleep(1);
 	}
 	queue->busy = 1;
 	move = (queue->size) * CHUNKSIZE;
 	while(queue->size == queue->capacity)
 	{
-	    queue->busy = 0;
-	    fprintf(stderr, "Too many elements in queue waiting... \n");
-	    sleep(2);
+		queue->busy = 0;
+		fprintf(stderr, "Too many elements in queue waiting... \n");
+		sleep(2);
 	}
 	queue->busy = 1;
 	for(i = move; i < CHUNKSIZE + move; i++)
 	{
-	   queue->elements[i] = message[i - move];
+		queue->elements[i] = message[i - move];
 	}
 	queue->size = queue->size + 1;
 	queue->busy = 0;
@@ -124,27 +124,27 @@ int top(Queue* queue, char* message)
 	int i;
 	while(queue->busy)
 	{
-	  sleep(1);
+		sleep(1);
 	}
 	queue->busy = 1;
 	if(queue->size == 0)
 	{
-	  queue->busy = 0;
-	  fprintf(stderr, "Empty queue \n");
-	  return -1;
+		queue->busy = 0;
+		fprintf(stderr, "Empty queue \n");
+		return -1;
 	}
 	char messages[queue->capacity * CHUNKSIZE];
 	for(i = 0; i< CHUNKSIZE; i++)
 	{
-	  message[i] = queue->elements[i];
+		message[i] = queue->elements[i];
 	}
 	for(i = CHUNKSIZE; i< queue->capacity * CHUNKSIZE; i++)
 	{
-	  messages[i - CHUNKSIZE] = queue->elements[i];
+		messages[i - CHUNKSIZE] = queue->elements[i];
 	}
 	for(i = 0; i< queue->capacity * CHUNKSIZE; i++)
 	{
-	   queue->elements[i] = messages[i];
+		queue->elements[i] = messages[i];
 	}
 	queue->size = queue->size -1;
 	queue->busy = 0;
@@ -168,7 +168,7 @@ ssize_t bulk_read(int fd, char *buf, size_t count)
 	{
 		/*
 		 * if there was error during reading return -1
-		 * if signal interruped reading try again
+		 * if signal interrupted reading try again
 		 */
 		c = TEMP_FAILURE_RETRY(read(fd, buf, count));
 		if (c < 0)
@@ -248,31 +248,31 @@ ssize_t bulk_write(int fd, char *buf, size_t count)
  */
 task_type convert_uint32_to_task_type(uint32_t number)
 {
-  switch(number)
-  {
-    case 0:
-      return REGISTER;
-    case 1:
-      return DOWNLOAD;
-    case 2:
-      return UPLOAD;
-    case 3:
-      return DELETE;
-    case 4:
-      return LIST;
-    case 5:
-      return REGISTERRESPONSE;
-    case 6:
-      return DOWNLOADRESPONSE;
-    case 7:
-      return UPLOADROSPONSE;
-    case 8:
-      return DELETERESPONSE;
-    case 9:
-      return LISTRESPONSE;
-    default :
-      return ERROR;
-  }
+	switch(number)
+	{
+	case 0:
+		return REGISTER;
+	case 1:
+		return DOWNLOAD;
+	case 2:
+		return UPLOAD;
+	case 3:
+		return DELETE;
+	case 4:
+		return LIST;
+	case 5:
+		return REGISTERRESPONSE;
+	case 6:
+		return DOWNLOADRESPONSE;
+	case 7:
+		return UPLOADROSPONSE;
+	case 8:
+		return DELETERESPONSE;
+	case 9:
+		return LISTRESPONSE;
+	default :
+		return ERROR;
+	}
 }
 
 /*
@@ -281,31 +281,31 @@ task_type convert_uint32_to_task_type(uint32_t number)
  */
 uint32_t convert_task_type_to_uint32(task_type task)
 {
-  switch(task)
-  {
-    case REGISTER:
-      return 0;
-    case DOWNLOAD:
-      return 1;
-    case UPLOAD:
-      return 2;
-    case DELETE:
-      return 3;
-    case LIST:
-      return 4;
-    case REGISTERRESPONSE:
-      return 5;
-    case DOWNLOADRESPONSE:
-      return 6;
-    case UPLOADROSPONSE:
-      return 7;
-    case DELETERESPONSE:
-      return 8;
-    case LISTRESPONSE:
-      return 9;
-    default :
-      return 10;
-  }
+	switch(task)
+	{
+	case REGISTER:
+		return 0;
+	case DOWNLOAD:
+		return 1;
+	case UPLOAD:
+		return 2;
+	case DELETE:
+		return 3;
+	case LIST:
+		return 4;
+	case REGISTERRESPONSE:
+		return 5;
+	case DOWNLOADRESPONSE:
+		return 6;
+	case UPLOADROSPONSE:
+		return 7;
+	case DELETERESPONSE:
+		return 8;
+	case LISTRESPONSE:
+		return 9;
+	default :
+		return 10;
+	}
 }
 
 /*
@@ -356,8 +356,8 @@ void put_size_to_message(uint32_t value, char* buf)
  */
 void get_filename_from_message(char *buf, char* filename)
 {
-   strcpy(filename, buf + 3*sizeof(uint32_t)/sizeof(char));
-   fprintf(stderr, "Got file name %s \n", filename);
+	strcpy(filename, buf + 3*sizeof(uint32_t)/sizeof(char));
+	fprintf(stderr, "Got file name %s \n", filename);
 }
 
 /*
@@ -406,13 +406,12 @@ void put_id_to_message(char * buf, uint32_t id_message)
 
 unsigned get_file_size (const char * file_name)
 {
-    struct stat sb;
-    if (stat (file_name, & sb) != 0) {
-        fprintf (stderr, "'stat' failed for '%s': %s.\n",
-                 file_name, strerror (errno));
-        return -1;
-    }
-    return sb.st_size;
+	struct stat sb;
+	if (stat (file_name, & sb) != 0) {
+		fprintf (stderr, "'stat' failed for '%s': %s.\n", file_name, strerror (errno));
+		return -1;
+	}
+	return sb.st_size;
 }
 
 /* TO DO */
@@ -422,45 +421,45 @@ unsigned get_file_size (const char * file_name)
  */
 char * read_whole_file (const char * file_name)
 {
-    unsigned s;
-    char * contents;
-    FILE * f;
-    size_t bytes_read;
-    int status;
+	unsigned s;
+	char * contents;
+	FILE * f;
+	size_t bytes_read;
+	int status;
 
-    s = get_file_size (file_name);
-    if(s == -1) return NULL;
-    contents = malloc (s + 1);
-    if (! contents) {
-        fprintf (stderr, "Not enough memory.\n");
-        return NULL;
-    }
+	s = get_file_size (file_name);
+	if(s == -1) return NULL;
+	contents = malloc (s + 1);
+	if (! contents) {
+		fprintf (stderr, "Not enough memory.\n");
+		return NULL;
+	}
 
-    f = fopen (file_name, "r");
-    if (! f) {
-        fprintf (stderr, "Could not open '%s': %s.\n", file_name, strerror (errno));
-        return NULL;
-    }
-    bytes_read = fread (contents, sizeof (unsigned char), s, f);
-    if (bytes_read != s) {
-        fprintf (stderr, "Short read of '%s': expected %d bytes "
-                 "but got %zu: %s.\n", file_name, s, bytes_read,
-                 strerror (errno));
-        return NULL;
-    }
-    status = fclose (f);
-    if (status != 0) {
-        fprintf (stderr, "Error closing '%s': %s.\n", file_name,
-                 strerror (errno));
-        return NULL;
-    }
-    return contents;
+	f = fopen (file_name, "r");
+	if (! f) {
+		fprintf (stderr, "Could not open '%s': %s.\n", file_name, strerror (errno));
+		return NULL;
+	}
+	bytes_read = fread (contents, sizeof (unsigned char), s, f);
+	if (bytes_read != s) {
+		fprintf (stderr, "Short read of '%s': expected %d bytes "
+				"but got %zu: %s.\n", file_name, s, bytes_read,
+				strerror (errno));
+		return NULL;
+	}
+	status = fclose (f);
+	if (status != 0) {
+		fprintf (stderr, "Error closing '%s': %s.\n", file_name,
+				strerror (errno));
+		return NULL;
+	}
+	return contents;
 }
 
 /*
  * base function to response for client requests
  */
-void* server_send_response_function(void * arg, char * type_name, task_type expected_type, void (*function) (char*, int, struct sockaddr_in))
+void* server_send_response_function(void * arg, char * type_name, task_type expected_type, void (*function) (task_type task, char*, int, struct sockaddr_in))
 {
 	int clientfd;
 	struct sockaddr_in client_addr;
@@ -470,7 +469,15 @@ void* server_send_response_function(void * arg, char * type_name, task_type expe
 	task_type task = NONE;
 	char* error_file_path;
 	message = (char*)malloc(CHUNKSIZE * sizeof(char));
+	if(message == NULL)
+	{
+		fprintf(stderr, "Server send response has problems with allocation memory for message \n");
+	}
 	error_file_path = (char *)malloc(FILENAME * sizeof(char));
+	if(error_file_path == NULL)
+	{
+		fprintf(stderr, "Server send response has problems with allocation memory for file path \n");
+	}
 	while (work)
 	{
 		/* top from queue */
@@ -478,11 +485,11 @@ void* server_send_response_function(void * arg, char * type_name, task_type expe
 			continue;
 		else
 		{
-		  clientfd = *targ.socket;
-		  client_addr = *targ.server_addr;
-		  (*function)(message, clientfd, client_addr);
-		  sleep(1);
-		  break;
+			clientfd = *targ.socket;
+			client_addr = *targ.server_addr;
+			(*function)(expected_type, message, clientfd, client_addr);
+			sleep(1);
+			break;
 		}
 	}
 	free(message);
@@ -502,53 +509,53 @@ int receive_message (int socket, struct sockaddr_in* receiver_addr, char* messag
 	char tmp[CHUNKSIZE];
 	fprintf(stderr, "Trying to receive message\n");
 	/*
-	* int sockfd, const void *buf, size_t len, int flags,
+	 * int sockfd, const void *buf, size_t len, int flags,
 		    const struct sockaddr *dest_addr, socklen_t addrlen);
-	*/
+	 */
 	socklen_t size = sizeof(struct sockaddr_in);
 	if(recvfrom(socket, message, CHUNKSIZE, 0, receiver_addr, &size) < 0)
 	{
-	      fprintf(stderr, "Failed receiving message\n");
-	      return -1;
+		fprintf(stderr, "Failed receiving message\n");
+		return -1;
 	}
 	/*
-	* success
-	*/
+	 * success
+	 */
 	task = check_message_type(message);
 	switch(task)
 	{
-	  case REGISTER:
-	    message_type = REGISTERSTRING;
-	    break;
-	  case DOWNLOAD:
-	    message_type = DOWNLOADSTRING;
-	    break;
-	  case UPLOAD:
-	    message_type = UPLOADSTRING;
-	    break;
-	  case DELETE:
-	    message_type = DELETESTRING;
-	    break;
-	  case LIST:
-	    message_type = LISTSTRING;
-	    break;
-	  case REGISTERRESPONSE:
-	    message_type = REGISTERRESPONSESTRING;
-	    break;
-	  case DOWNLOADRESPONSE:
-	    message_type = DOWNLOADRESPONSESTRING;
-	    break;
-	  case UPLOADROSPONSE:
-	    message_type = UPLOADRESPONSESTRING;
-	    break;
-	  case DELETERESPONSE:
-	    message_type = DELETERESPONSESTRING;
-	    break;
-	  case LISTRESPONSE:
-	    message_type = LISTRESPONSESTRING;
-	    break;
-	  default:
-	    return -1;
+	case REGISTER:
+		message_type = REGISTERSTRING;
+		break;
+	case DOWNLOAD:
+		message_type = DOWNLOADSTRING;
+		break;
+	case UPLOAD:
+		message_type = UPLOADSTRING;
+		break;
+	case DELETE:
+		message_type = DELETESTRING;
+		break;
+	case LIST:
+		message_type = LISTSTRING;
+		break;
+	case REGISTERRESPONSE:
+		message_type = REGISTERRESPONSESTRING;
+		break;
+	case DOWNLOADRESPONSE:
+		message_type = DOWNLOADRESPONSESTRING;
+		break;
+	case UPLOADROSPONSE:
+		message_type = UPLOADRESPONSESTRING;
+		break;
+	case DELETERESPONSE:
+		message_type = DELETERESPONSESTRING;
+		break;
+	case LISTRESPONSE:
+		message_type = LISTRESPONSESTRING;
+		break;
+	default:
+		return -1;
 	}
 	fprintf(stderr, "Received message %s succeeded\n", message_type);
 	strcpy(tmp, message + sizeof(uint32_t)/sizeof(char));
@@ -561,32 +568,32 @@ int receive_message (int socket, struct sockaddr_in* receiver_addr, char* messag
  */
 int send_message (int socket, struct sockaddr_in receiver_addr, char* message, char* message_type)
 {
-  char tmp[CHUNKSIZE];
-  int port = receiver_addr.sin_port;
-  fprintf(stderr, "Receiver port %d \n", port);
-  fprintf(stderr, "Trying to send message %s \n", message_type);
+	char tmp[CHUNKSIZE];
+	int port = receiver_addr.sin_port;
+	fprintf(stderr, "Receiver port %d \n", port);
+	fprintf(stderr, "Trying to send message %s \n", message_type);
 
-  /*
-   * int sockfd, const void *buf, size_t len, int flags,
+	/*
+	 * int sockfd, const void *buf, size_t len, int flags,
                const struct sockaddr *dest_addr, socklen_t addrlen);
-   */
-  if(TEMP_FAILURE_RETRY(sendto(socket, message, CHUNKSIZE, 0, &receiver_addr, sizeof(struct sockaddr_in))) < 0)
-  {
-    /*
-     * failure
-     */
-    fprintf(stderr, "Sending message %s failed \n", message_type);
-    return -1;
-  }
-  /*
-   * success
-   */
-  fprintf(stderr, "Sending message %s succeeded \n", message_type);
+	 */
+	if(TEMP_FAILURE_RETRY(sendto(socket, message, CHUNKSIZE, 0, &receiver_addr, sizeof(struct sockaddr_in))) < 0)
+	{
+		/*
+		 * failure
+		 */
+		fprintf(stderr, "Sending message %s failed \n", message_type);
+		return -1;
+	}
+	/*
+	 * success
+	 */
+	fprintf(stderr, "Sending message %s succeeded \n", message_type);
 
-  strcpy(tmp, message + 3*sizeof(uint32_t)/sizeof(char));
+	strcpy(tmp, message + 3*sizeof(uint32_t)/sizeof(char));
 
-  fprintf(stderr, "Real message send =  %s  \n", tmp);
-  return 0;
+	fprintf(stderr, "Real message send =  %s  \n", tmp);
+	return 0;
 }
 
 /*
@@ -594,72 +601,72 @@ int send_message (int socket, struct sockaddr_in receiver_addr, char* message, c
  */
 void free_queue()
 {
-  free(queue->elements);
-  free(queue);
+	free(queue->elements);
+	free(queue);
 }
 
 /*
  * create specified file, handle errors
  */
 uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
-				int* package_amount, uint8_t** packages, char* message)
+		int* package_amount, uint8_t** packages, char* message)
 {
-  int fd;
-  while(1)
+	int fd;
+	while(1)
 	{
-	  fd = open(real_file_name, O_RDWR);
-	  if(fd < 0)
-	  {
-	    if(errno == ENOENT)
-	    {
-	      /* file does not exists */
-	      while(1)
-	      {
-		fd = open(real_file_name, O_RDWR | O_CREAT, S_IRWXU | S_IRGRP | S_IROTH);
+		fd = open(real_file_name, O_RDWR);
 		if(fd < 0)
 		{
-		  if(errno == EINTR)
-		    continue;
-		  else
-		  {
-		    fprintf(stderr, "Could not open file %s %s \n", real_file_name, strerror(errno));
-		    return 1;
-		  }
+			if(errno == ENOENT)
+			{
+				/* file does not exists */
+				while(1)
+				{
+					fd = open(real_file_name, O_RDWR | O_CREAT, S_IRWXU | S_IRGRP | S_IROTH);
+					if(fd < 0)
+					{
+						if(errno == EINTR)
+							continue;
+						else
+						{
+							fprintf(stderr, "Could not open file %s %s \n", real_file_name, strerror(errno));
+							return 1;
+						}
+					}
+					else
+					{
+						close_file(&fd, real_file_name);
+						break;
+					}
+				}
+				fprintf(stderr, "Creating new file \n");
+				*filesize = get_file_size_from_message(message);
+				if(*filesize == *filesize / real_package_size * real_package_size)
+					*package_amount = *filesize / real_package_size;
+				else
+					*package_amount = *filesize / real_package_size + 1;
+				*packages = (uint8_t*) calloc(*package_amount, sizeof(uint8_t));
+				if(*packages == NULL)
+				{
+					fprintf(stderr, "Could not allocate memory for packages \n");
+					return 1;
+				}
+				break;
+			}
+			else if(errno == EINTR)
+				continue;
+			else
+			{
+				fprintf(stderr, "Could not open file %s %s", real_file_name, strerror(errno));
+				return 1;
+			}
 		}
 		else
 		{
-		  close_file(&fd, real_file_name);
-		  break;
+			fprintf(stdout, "File already exists!\n");
+			close_file(&fd, real_file_name);
+			return 1;
 		}
-	      }
-	      fprintf(stderr, "Creating new file \n");
-	      *filesize = get_file_size_from_message(message);
-	      if(*filesize == *filesize / real_package_size * real_package_size)
-		*package_amount = *filesize / real_package_size;
-	      else
-		*package_amount = *filesize / real_package_size + 1;
-	      *packages = (uint8_t*) calloc(*package_amount, sizeof(uint8_t));
-	      if(*packages == NULL)
-	      {
-		fprintf(stderr, "Could not allocate memory for packages \n");
-		return 1;
-	      }
-	      break;
-	    }
-	    else if(errno == EINTR)
-	      continue;
-	    else
-	    {
-	      fprintf(stderr, "Could not open file %s %s", real_file_name, strerror(errno));
-	      return 1;
-	    }
-	  }
-	  else
-	  {
-	    fprintf(stdout, "File already exists!\n");
-	    close_file(&fd, real_file_name);
-	    return 1;
-	  }
 	}
 	return 0;
 }
@@ -667,30 +674,30 @@ uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
 /* return 0 if file exists and was opened */
 uint8_t open_file(char* real_file_name, int *fd)
 {
-  while(1)
+	while(1)
 	{
-	  *fd = open(real_file_name, O_RDWR);
-	  if(*fd < 0)
-	  {
-	    if(errno == ENOENT)
-	    {
-	      /* file does not exists */
-	      return 1;
-	    }
-	    else if(errno == EINTR)
-	      continue;
-	    else
-	    {
-	      fprintf(stderr, "Could not open file %s %s", real_file_name, strerror(errno));
-	      return 1;
-	    }
-	  }
-	  else
-	  {
-	    fprintf(stdout, "File already exists!\n");
-	    close_file(fd, real_file_name);
-	    return 0;
-	  }
+		*fd = open(real_file_name, O_RDWR);
+		if(*fd < 0)
+		{
+			if(errno == ENOENT)
+			{
+				/* file does not exists */
+				return 1;
+			}
+			else if(errno == EINTR)
+				continue;
+			else
+			{
+				fprintf(stderr, "Could not open file %s %s", real_file_name, strerror(errno));
+				return 1;
+			}
+		}
+		else
+		{
+			fprintf(stdout, "File already exists!\n");
+			close_file(fd, real_file_name);
+			return 0;
+		}
 	}
 	return 0;
 }
@@ -700,16 +707,16 @@ uint8_t open_file(char* real_file_name, int *fd)
  */
 void close_file(int* fd, char* real_file_name)
 {
-  while(close(*fd) < 0)
-  {
-    if(errno == EINTR)
-      continue;
-    else
-    {
-      fprintf(stderr, "Could not close file %s %s", real_file_name, strerror(errno));
-      break;
-    }
-  }
+	while(close(*fd) < 0)
+	{
+		if(errno == EINTR)
+			continue;
+		else
+		{
+			fprintf(stderr, "Could not close file %s %s", real_file_name, strerror(errno));
+			break;
+		}
+	}
 }
 
 /*
@@ -722,30 +729,31 @@ uint8_t check_top_of_queue(char* message_type, task_type* task, char* message, t
 	fprintf(stderr, "Waiting to receive %s \n", message_type);
 	if (top(queue, message) < 0)
 	{
-	  fprintf(stderr, "Queue is empty, nothing to show \n");
-	  sleep(2);
-	  message = calloc(CHUNKSIZE, sizeof(char));
-	  if(message == NULL)
-	  {
-	    fprintf(stderr, "Problem with allocating memoryfor message \n");
-	  }
-	  return 1;
+		fprintf(stderr, "Queue is empty, nothing to show \n");
+		sleep(2);
+		memset(message, 0, CHUNKSIZE * sizeof(char));
+		/*message = calloc(CHUNKSIZE, sizeof(char));*/
+		if(message == NULL)
+		{
+			fprintf(stderr, "Problem with allocating memory for message \n");
+		}
+		return 1;
 	}
 	*task = check_message_type(message);
-	fprintf(stderr, "Real task nummber %d \n", (int)(*task));
+	fprintf(stderr, "Real task number %d \n", (int)(*task));
 	if(*task == ERROR)
 	{
-	  get_filename_from_message(message, error_file_path);
-	  fprintf(stderr, "Got task with type ERROR for filename %s \n", error_file_path);
-	  return 1;
+		get_filename_from_message(message, error_file_path);
+		fprintf(stderr, "Got task with type ERROR for filename %s \n", error_file_path);
+		return 1;
 	}
 	if(*task != expected_task)
 	{
-	  /* push to the end of queue */
-	  fprintf(stderr, "Task type is not %s\n", message_type);
-	  push(queue, message);
-	  sleep(1);
-	  return 1;
+		/* push to the end of queue */
+		fprintf(stderr, "Task type is not %s\n", message_type);
+		push(queue, message);
+		sleep(1);
+		return 1;
 	}
 	return 0;
 }

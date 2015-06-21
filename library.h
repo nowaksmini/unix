@@ -122,7 +122,7 @@ unsigned get_file_size (const char * file_name);
 
 char * read_whole_file (const char * file_name);
 
-void* server_send_response_function(void * arg, char * type_name, task_type expected_type, void (*function) (char*, int, struct sockaddr_in));
+void* server_send_response_function(void * arg, char * type_name, task_type expected_type, void (*function) (task_type task, char*, int, struct sockaddr_in));
 
 int receive_message (int socket, struct sockaddr_in* received_addr, char* message);
 
@@ -137,5 +137,6 @@ void close_file(int* fd, char* real_file_name);
 uint8_t open_file(char* real_file_name, int *fd);
 
 uint8_t check_top_of_queue(char* message_type, task_type* task, char* message, task_type expected_task, char* error_file_path);
+
 #endif
 
