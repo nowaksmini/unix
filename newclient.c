@@ -22,13 +22,6 @@
 
 void init(pthread_t *thread, thread_arg *targ, int *socket, struct sockaddr_in* server_addr, task_type task,
 	  char filepath [FILENAME]);
-/*
- * function responsible for handling SIGINT signal 
- */
-void siginthandler(int sig)
-{
-	work = 0;
-}
 
 
 /*
@@ -57,7 +50,9 @@ task_type get_task_type_from_input(char * message)
     return ERROR;
 }
 
-
+/*
+ * fill message with necessary information about registration
+ */
 void generate_register_message(char* message)
 {
 	memset(message, 0, CHUNKSIZE);
@@ -65,33 +60,6 @@ void generate_register_message(char* message)
 	strcpy(message + sizeof(uint32_t)/sizeof(char), CLIENTREQUESTS);
 }
 
-/*
- * sending message
- */
-int send_message (int socket, struct sockaddr_in server_addr, char* message, char* message_type)
-{
-	char tmp[1000];
-	fprintf(stderr, "Trying to sent message %s \n", message_type);
-	/*
-	* int sockfd, const void *buf, size_t len, int flags,
-		    const struct sockaddr *dest_addr, socklen_t addrlen);
-	*/
-	if(TEMP_FAILURE_RETRY(sendto(socket, message, CHUNKSIZE, 0, &server_addr, sizeof(struct sockaddr_in))) < 0)
-	{
-	  /*
-	  * failure
-	  */
-	  fprintf(stderr, "Sending message %s failed \n", message_type);
-	  return -1;
-	}
-	/*
-	* success
-	*/
-	fprintf(stderr, "Sending message %s succeeded \n", message_type);
-	strcpy(tmp, message + sizeof(uint32_t)/sizeof(char));
-	fprintf(stderr, "Real message send =  %s  \n", tmp);
-	return 0;
-}
 
 /*
  * send request to download file
@@ -101,7 +69,7 @@ void download_request_work(int socket, struct sockaddr_in server_addr, char* fil
 	char message_to_send[CHUNKSIZE];
 	memset(message_to_send, 0, CHUNKSIZE);
 	save_massage_type_to_message(DOWNLOAD, message_to_send);
-	strcpy(message_to_send + sizeof(uint32_t)/sizeof(char), filepath);
+	strcpy(message_to_send + 3*sizeof(uint32_t)/sizeof(char), filepath);
 	fprintf(stderr, "Size of path put inside message %zu \n", strlen(filepath));
 	if(send_message(socket, server_addr, message_to_send, DOWNLOADSTRING) < 0)
 	{	
@@ -116,7 +84,7 @@ void upload_request_work(int socket, struct sockaddr_in server_addr, char* filep
 	struct stat sts;
 	memset(message_to_send, 0, CHUNKSIZE);
 	save_massage_type_to_message(UPLOAD, message_to_send);
-	strcpy(message_to_send + sizeof(uint32_t)/sizeof(char), filepath);
+	strcpy(message_to_send + 3*sizeof(uint32_t)/sizeof(char), filepath);
 	fprintf(stderr, "Size of path put inside message %zu \n", strlen(filepath));
 	if (stat(filepath, &sts) != -1 && errno == ENOENT)
 	{
@@ -141,7 +109,7 @@ void delete_request_work(int socket, struct sockaddr_in server_addr, char* filep
 	char message_to_send[CHUNKSIZE];
 	memset(message_to_send, 0, CHUNKSIZE);
 	save_massage_type_to_message(DELETE, message_to_send);
-	strcpy(message_to_send + sizeof(uint32_t)/sizeof(char), filepath);
+	strcpy(message_to_send + 3*sizeof(uint32_t)/sizeof(char), filepath);
 	fprintf(stderr, "Size of path put inside message %zu \n", strlen(filepath));
 	if(send_message(socket, server_addr, message_to_send, DELETESTRING) < 0)
 	{	
@@ -150,83 +118,9 @@ void delete_request_work(int socket, struct sockaddr_in server_addr, char* filep
 	sleep(1);
 }
 
-/*
- * receiving message
- */
-task_type receive_message (int socket, struct sockaddr_in* received_server_addr, char* message)
-{
-	task_type task = NONE;
-	char * message_type = NOACTIONSTRING;
-	char tmp[CHUNKSIZE];
-	fprintf(stderr, "\n Trying to receive message \n");
-	
-	/*
-	* int sockfd, const void *buf, size_t len, int flags,
-		    const struct sockaddr *dest_addr, socklen_t addrlen);
-	*/
-	socklen_t size = sizeof(struct sockaddr_in);
-	if(recvfrom(socket, message, CHUNKSIZE, 0, received_server_addr, &size) < 0)
-	{
-	  if(EINTR != errno)
-	  {
-	    fprintf(stderr, "Failed receving message \n");
-	    return ERROR;
-	  }
-	}
-	/*
-	* success
-	*/
-	fprintf(stderr, "Preparing for parcing received message \n");
-	task = check_message_type(message);
-	
-	if(task == DOWNLOAD)
-	{
-	  message_type = DOWNLOADSTRING;
-	}
-	if(task == DOWNLOADRESPONSE)
-	{
-	  message_type = DOWNLOADRESPONSESTRING;
-	}
-	if(task == DELETE)
-	{
-	  message_type = DELETESTRING;
-	}
-	if(task == DELETERESPONSE)
-	{
-	  message_type = DELETERESPONSESTRING;
-	}
-	if(task == UPLOAD)
-	{
-	  message_type = UPLOADSTRING;
-	}
-	if(task == UPLOADROSPONSE)
-	{
-	  message_type = UPLOADRESPONSESTRING;
-	}
-	if(task == LIST)
-	{
-	  message_type = LISTSTRING;
-	}
-	if(task == LISTRESPONSE)
-	{
-	  message_type = LISTRESPONSESTRING;
-	}
-	if(task == REGISTERRESPONSE)
-	{
-	  message_type = REGISTERRESPONSESTRING;
-	}
-	if(task == ERROR)
-	{
-	  message_type = ERRORSTRING;
-	}
-	strcpy(tmp, message + 3*sizeof(uint32_t)/sizeof(char));
-	fprintf(stderr, "Real message received = %s \n", tmp);
-	fprintf(stderr, "Received message %s succeeded\n", message_type);
-	return task;
-}
 
 /*
- * thread function for listening  anything from server
+ * thread function for listening anything from server
  */
 void input_listening_work(int socket, struct sockaddr_in server_addr)
 {
@@ -237,113 +131,76 @@ void input_listening_work(int socket, struct sockaddr_in server_addr)
 	char request[20];
 	pthread_t thread;
 	thread_arg targ;
-	
-	fgets(input_message, max, stdin);
+	if(fgets(input_message, max, stdin) == NULL)
+	{
+	  ERR("fgets"); 
+	}
 	task = get_task_type_from_input(input_message);
-	if(task == DOWNLOAD)
+	if(sscanf(input_message, "%s %s", request, filepath) == EOF)
 	{
-	    if(sscanf(input_message, "%s %s", request, filepath) == EOF)
-	    {
-		fprintf(stderr, "PROBLEM WITH SSCANF");
-	    }
-	    else
-	    {	
-	        fprintf(stderr, "Got task type %s \n", request);
-		fprintf(stderr, "Got file name to download %s  \n", filepath);
-		/*
-		 * run new thread for communication and downloading
-		 */
-		init(&thread, &targ, &socket, &server_addr, DOWNLOAD, filepath);
-	    }
+	  fprintf(stderr, "PROBLEM WITH SSCANF \n");
 	}
-	else if(task == DELETE)
-	{
-	    if(sscanf(input_message, "%s %s", request, filepath) == EOF)
-	    {
-		fprintf(stderr, "PROBLEM WITH SSCANF");
-	    }
-	    else
-	    {	
-	        fprintf(stderr, "Got task type %s \n", request);
-		fprintf(stderr, "Got file name to delete %s  \n", filepath);
-		/*
-		 * run new thread for communication and downloading
-		 */
-		init(&thread, &targ, &socket, &server_addr, DELETE, filepath);
-	    }
-	}else if(task == UPLOAD)
-	{
-	    if(sscanf(input_message, "%s %s", request, filepath) == EOF)
-	    {
-		fprintf(stderr, "PROBLEM WITH SSCANF");
-	    }
-	    else
-	    {	
-	        fprintf(stderr, "Got task type %s \n", request);
-		fprintf(stderr, "Got file name to upload %s  \n", filepath);
-		/*
-		 * run new thread for communication and downloading
-		 */
-		init(&thread, &targ, &socket, &server_addr, UPLOAD, filepath);
-	    }
-	}
-    
+	else
+	{	
+	  fprintf(stderr, "Got task type %s \n", request);
+	  fprintf(stderr, "Got file name to work %s  \n", filepath);
+	  /*
+	   * run new thread for communication and downloading
+	   */
+	  init(&thread, &targ, &socket, &server_addr, task, filepath);
+	}    
 }
 
 /*
- * thread function for listening  anything from 
+ * thread function for pushing messages from server to queue
  */
 void server_listening_work(int socket, struct sockaddr_in server_addr)
 {
 	task_type task = NONE;
 	char message_received[CHUNKSIZE];
-	task = receive_message(socket, &server_addr, message_received);
-	fprintf(stderr, "SERVER_LISTENING, task = %d \n", (int)task);
+	char* information;
+	if(receive_message(socket, &server_addr, message_received) < 0)
+	{
+	   fprintf(stderr, "Problem with receiving message \n"); 
+	}
+	task = check_message_type(message_received);
+	fprintf(stderr, "Directly received from server task = %d \n", (int)task);
 	push(queue, message_received);
-	/*switch(task)
+	switch(task)
 	{
-	  
-	}*/
-	if(task == ERROR)
-	{
-	   perror("Receiving message ");
+	  case DELETERESPONSE:
+	    information = DELETERESPONSESTRING;
+	    break;
+	  case UPLOADROSPONSE:
+	    information = UPLOADRESPONSESTRING;
+	    break;
+	  case DOWNLOADRESPONSE:
+	    information = DOWNLOADRESPONSESTRING;
+	    break;
+	  case LISTRESPONSE:
+	    information = LISTRESPONSESTRING;
+	    break;
+	  case DELETE:
+	    information = DELETESTRING;
+	    break;
+	  case UPLOAD:
+	    information = UPLOADSTRING;
+	    break;
+	  case LIST:
+	    information = LISTSTRING;
+	    break;
+	  case DOWNLOAD:
+	    information = DOWNLOADSTRING;
+	    break;
+	  default:
+	    information = ERRORSTRING;
 	}
-	else if(task == DELETERESPONSE)
-	{
-	    fprintf(stderr, "%s: %s", RECEIVEDINTHREAD, DELETERESPONSESTRING);
-	}
-	else if(task == UPLOADROSPONSE)
-	{
-	    fprintf(stderr, "%s : %s", RECEIVEDINTHREAD, UPLOADRESPONSESTRING);
-	}
-	else if(task == DOWNLOADRESPONSE)
-	{
-	    fprintf(stderr, "%s : %s", RECEIVEDINTHREAD, DOWNLOADRESPONSESTRING);
-	}
-	else if(task == LISTRESPONSE)
-	{
-	    fprintf(stderr, "%s : %s", RECEIVEDINTHREAD, LISTRESPONSESTRING);
-	}
-	else if(task == DELETE)
-	{
-	    fprintf(stderr, "%s: %s", RECEIVEDINTHREAD, DELETESTRING);
-	}
-	else if(task == UPLOAD)
-	{
-	    fprintf(stderr, "%s : %s", RECEIVEDINTHREAD, UPLOADSTRING);
-	}
-	else if(task == DOWNLOAD)
-	{
-	    fprintf(stderr, "%s : %s", RECEIVEDINTHREAD, DOWNLOADSTRING);
-	}
-	else if(task == LIST)
-	{
-	    fprintf(stderr, "%s : %s", RECEIVEDINTHREAD, LISTSTRING);
-	}
-
+	fprintf(stderr, "%s: %s", RECEIVEDINTHREAD, information);
 }
 
-
+/*
+ * thread function for listening messages from server after successful detecting server's address
+ */
 void *server_listen_thread_function(void *arg)
 {
 	int clientfd;
@@ -362,6 +219,9 @@ void *server_listen_thread_function(void *arg)
 	return NULL;
 }
 
+/*
+ * thread function for listening commands from stdin
+ */
 void *input_listen_thread_function(void *arg)
 {
 	int clientfd;
@@ -380,35 +240,251 @@ void *input_listen_thread_function(void *arg)
 	return NULL;
 }
 
+/*
+ * wait for download response, if thread should stop executing return 1 else 0
+ */
+uint8_t wait_for_download_response(char* error_file_path, char* message, task_type *type, int* id, char* file_path,
+				char* old_file_path, char* communicate, char** real_file_name, int* package_amount, uint8_t** packages)
+{
+	int i;
+	int first_empty_sign;
+	int filesize = 0;
+	int tmp_id = -1;
+	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
+	while(work)
+	{
+	      if(check_top_of_queue("DOWNLOADRESPONSE", type, message, DOWNLOADRESPONSE, error_file_path) == 1)
+	      {
+		continue;
+	      }
+	      /* waiting for confirmation or rejection of downloading file*/
+	      if(*id == -1)
+	      {
+		/* check the filepath saved in message*/
+		get_filename_from_message(message, file_path);
+		for(i = 0; i < FILENAME; i++)
+		{
+		    if(file_path[i] != old_file_path[i])
+		    {
+		      fprintf(stderr, "Not this message, wrong filepath \n");
+		      push(queue, message);
+		      break;
+		    }
+		}
+		/* filepaths are the same */
+		if(i == FILENAME)
+		{
+		  /* check if id > 0 else show error got from server */
+		  tmp_id = get_id_from_message(message);
+		  strcpy(communicate, message + 3 * sizeof(uint32_t)/ sizeof(char) + FILENAME);
+		  if(tmp_id == 0)
+		  {
+		    /* error with file , show message */
+		    fprintf(stdout, "Could not download file %s, reason : %s \n", file_path, communicate);
+		    push(queue, message);
+		    return 1;
+		  }
+		  else
+		  {
+		    *id = tmp_id;
+		    fprintf(stdout, "Server confirmed downloading file  %s, \n  message : %s \n", file_path, communicate);
+		    fprintf(stdout, "Got id %d \n", *id);
+		    /* check if file exists if not create else check if is opened if not remove data and write own */
+		    for(i = 0; i < FILENAME; i++)
+		    {
+			if(file_path[i] == '\0' || file_path[i] == '\n')
+			{
+			  first_empty_sign = i;
+			  break;
+			}
+		    }
+		    fprintf(stderr, "Empty sign found at position : %d \n", first_empty_sign);
+		    *real_file_name = (char*)calloc(first_empty_sign , sizeof(char));
+		    if(*real_file_name == NULL)
+		    {
+		      fprintf(stderr, "Could not allocate memory for file name \n");
+		      return 1;
+		    }
+		    for(i = 0; i < first_empty_sign; i++)
+		    {
+			(*real_file_name)[i] = file_path[i];
+		    }
+		    fprintf(stderr, "Real file name size %zu after malloc \n", strlen(*real_file_name));
+		    return create_file(*real_file_name, &filesize, real_package_size , package_amount, packages, message);
+		  }
+		}
+	      }
+	}
+	return 0;
+}
+
+/*
+ * handle packages with id same as thread id an task type DOWNLOAD
+ */
+void* wait_for_packages(char *message, char* error_file_path, int id, int package_amount, int should_download, char* real_file_name, uint8_t* packages)
+{
+	task_type task;
+	int i;
+	int tmp_id;
+	int package_number;
+	char* file_contents;
+	unsigned char md5_sum[MD5LENGTH];
+	char* package;
+	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
+	package = malloc(real_package_size);
+	int fd;
+	if(package == NULL)
+	{
+	  fprintf(stderr, "Problem with allocating memory for package \n");
+	  free(package);
+	  return NULL;
+	}
+	
+	while(work)
+	{
+	  fprintf(stderr, "Waiting to receive DOWNLOAD \n");
+	  if (top(queue, message) < 0)
+	  {
+	    fprintf(stderr, "Queue is empty, nothing to show \n");
+	    sleep(2);
+	    message = (char*)calloc(CHUNKSIZE, sizeof(char));
+	    if(message == NULL)
+	    {
+	      fprintf(stderr, "Problems with allocating memory for message \n");
+	      break;
+	    }
+	    continue;
+	  }
+	  task = check_message_type(message);
+	  fprintf(stderr, "Real task nummber %d \n", (int)task);
+	  if(task == ERROR)
+	  {
+	    get_filename_from_message(message, error_file_path);
+	    fprintf(stderr, "Got task with type ERROR for filename %s \n", error_file_path);
+	    continue;
+	  }
+	  if(task != DOWNLOAD)
+	  {
+	    /* push to the end of queue */
+	    fprintf(stderr, "Task type is not DOWNLOAD\n");
+	    push(queue, message);
+	    sleep(1);
+	    continue;
+	  }
+	  else
+	  {
+	    tmp_id = get_id_from_message(message);
+	    if(tmp_id == id)
+	    {
+	      /*file exists or some problems occured earlier
+	       need to take from queue all messages for this task*/
+	      
+	      fprintf(stderr, "Id of message and thread are the same \n");
+	      fprintf(stderr, "Got data for update \n");
+	      package_number = get_file_size_from_message(message);
+	      if(package_number == package_amount)
+	      {
+		if(should_download == 1) 
+		  break;
+		fprintf(stderr, "Checking md5 sums \n");
+		file_contents = read_whole_file (real_file_name);
+		if(file_contents == NULL) 
+		{
+		  break;
+		}
+		compute_md5(file_contents, md5_sum);
+		package = malloc(real_package_size);
+		if(package == NULL)
+		{
+		    fprintf(stderr, "Problem with allocating memory for package \n");
+		    break;
+		}
+		strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char));
+		fprintf(stderr, "Got md5 sum %s for file %s \n", md5_sum, real_file_name);
+		for(i = 0; i< MD5LENGTH; i++)
+		{
+		  if(md5_sum[i] == '\0') break;
+		  if(((int)md5_sum[i] - (int)package[i] ) % 256 != 0)
+		  {
+		    fprintf(stdout, "Wrong md5 sum %s for field %d %d %d \n", real_file_name, i, (int)md5_sum[i], (int)package[i]);
+		    break;
+		  }
+		}
+		fprintf(stdout, "Md5 sums correct for file %s \n", real_file_name);
+		break;
+	      }
+	      else
+	      {
+		if(should_download == 1) 
+		  continue;
+		fprintf(stderr, "Write data to update file \n");
+		package = malloc(real_package_size);
+		if(package == NULL)
+		{
+		    fprintf(stderr, "Problem with allocating memory for package \n");
+		    break;
+		}
+		strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char));
+		if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDWR))) == -1)
+		{
+		  fprintf(stderr, "Could not open file %s %s \n", real_file_name, strerror(errno));
+		  break;
+		}
+		fprintf(stderr, "Package number %d \n", package_number);
+		if(package_number == 0 || packages[package_number-1] == 1)
+		{	
+		  packages[package_number] = 1;
+		  if(lseek(fd, 0, SEEK_END) < 0)
+		  {
+		    fprintf(stderr, "Could not write.\n");
+		    close_file(&fd, real_file_name);
+		    continue;
+		  }
+		  bulk_write(fd, package, strlen(package));
+		  fprintf(stderr, "Package was written to file %s \n", real_file_name);
+		  close_file(&fd, real_file_name);
+		}
+		else
+		{
+		  fprintf(stderr, "Pushing message back to queue \n");
+		  push(queue, message);
+		}
+	      }
+	    }
+	    else
+	    {
+	      fprintf(stderr, "Pushing message back to queue \n");
+	      push(queue, message);
+	    }
+	  }
+	}
+	free(package);
+	return NULL;
+}
+
+/*
+ * thread function for downloading file
+ */
 void *download_thread_function(void *arg)
 {
 	int clientfd;
 	int id = -1;
-	int tmpid = -1;
-	int i;
-	int fd;
 	int package_amount = 0;
 	struct sockaddr_in server_addr;
 	thread_arg targ;
 	char* filepath;
+	int i;
 	char* error_file_path;
 	char oldFilePath[FILENAME];
 	char communicate [CHUNKSIZE - 3* sizeof(uint32_t)/ sizeof(char) - FILENAME];
-	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
-	char * real_file_name;
-	int filesize = 0;
+	char* real_file_name;
 	char* message;
-	int first_empty_sign;
 	task_type task;
-	char * package;
-	int package_number;
-	char * file_contents;
-	uint8_t * packages;
+	uint8_t * packages ;
+	uint8_t should_download;
 	message = calloc(CHUNKSIZE, sizeof(char));
-	unsigned char md5_sum[MD5LENGTH];
 	memcpy(&targ, arg, sizeof(targ));
 	error_file_path = (char*) calloc(FILENAME, sizeof(char));
-	package = malloc(real_package_size);
 	if (work)
 	{
 		clientfd = *targ.socket;
@@ -423,251 +499,21 @@ void *download_thread_function(void *arg)
 	/*
 	 * receive communicate from server about existing file or not
 	 */
-	while(work)
-	{
-	      /* top from queue */
-	      fprintf(stderr, "Waiting to receive DOWNLOADRESPONSE \n");
-	      if (top(queue, message) < 0)
-	      {
-		fprintf(stderr, "Queue is empty, nothing to show \n");
-		sleep(2);
-		message = calloc(CHUNKSIZE, sizeof(char));
-		continue;
-	      }
-	      task = check_message_type(message);
-	      fprintf(stderr, "Real task nummber %d \n", (int)task);
-	      if(task == ERROR)
-	      {
-		get_filename_from_message(message, error_file_path);
-		fprintf(stderr, "Got task with type ERROR for filename %s \n", error_file_path);
-		continue;
-	      }
-	      if(task != DOWNLOADRESPONSE)
-	      {
-		/* push to the end of queue */
-		fprintf(stderr, "Task type is not DOWNLOADRESPONSE\n");
-		push(queue, message);
-		sleep(1);
-		continue;
-	      }
-	      /* waiting for confirmation or rejection of downloading file*/
-	      else if(id == -1)
-	      {
-		
-		/* check the filepath saved in message*/
-		get_filename_from_message(message, filepath);
-		for(i = 0; i < FILENAME; i++)
-		{
-		    if(filepath[i] != oldFilePath[i])
-		    {
-		      fprintf(stderr, "Not this message, wrong filepath \n");
-		      push(queue, message);
-		      break;
-		    }
-		}
-		/* filepaths are the same */
-		if(i == FILENAME)
-		{
-		  /* check if id > 0 else show error got from server */
-		  tmpid = get_id_from_message(message);
-		  strcpy(communicate, message + 3 * sizeof(uint32_t)/ sizeof(char) + FILENAME);
-		  if(tmpid == 0)
-		  {
-		    /* error with file , show message */
-		    fprintf(stdout, "Could not download file %s, reason : %s \n", filepath, communicate);
-		    push(queue, message);
-		    pthread_exit(&targ);
-		    return NULL;
-		  }
-		  else
-		  {
-		    id = tmpid;
-		    fprintf(stdout, "Server confirmed downloading file  %s, \n  message : %s \n", filepath, communicate);
-		    fprintf(stdout, "Got id %d \n", id);
-		    /* check if file exists if not create else check if is opened if not remove data and write own */
-		    for(i = 0; i < FILENAME; i++)
-		    {
-			if(filepath[i] == '\0' || filepath[i] == '\n')
-			{
-			  first_empty_sign = i;
-			  break;
-			}
-		    }
-		    fprintf(stderr, "Empty sign found at position : %d \n", first_empty_sign);
-		    real_file_name = calloc(first_empty_sign , sizeof(char));
-		    for(i = 0; i < first_empty_sign; i++)
-		    {
-			real_file_name[i] = filepath[i];
-		    }
-		    fprintf(stderr, "Real file name size %zu after malloc \n", strlen(real_file_name));
-		    if(open(real_file_name, O_RDWR) < 0)
-		    {
-			  fd = open(real_file_name, O_RDWR | O_CREAT, S_IRWXU | S_IRGRP | S_IROTH);
-			  fprintf(stderr, "Creating new file \n");
-			  filesize = get_file_size_from_message(message);
-			  if(filesize == filesize / real_package_size * real_package_size)
-			    package_amount = filesize / real_package_size;
-			  else 
-			      package_amount = filesize / real_package_size + 1;
-			  packages = calloc(package_amount, sizeof(uint8_t));
-		    }
-		    else
-		    {
-			 fprintf(stdout, "File already exists!\n");
-			 /* remove unnecessary messages */
-			 pthread_exit(&targ);
-			 return NULL;
-		    }
-		    break;
-		  }
-		}
-	      }
-	}
-	
+	should_download = wait_for_download_response(error_file_path, message, &task, &id, filepath,
+				oldFilePath, communicate, &real_file_name, &package_amount, &packages);
+
 	fprintf(stderr, "Waiting for datagrams with file content\n");
 	
-	while(work)
-	{
-	      fprintf(stderr, "Waiting to receive DOWNLOAD \n");
-	      if (top(queue, message) < 0)
-	      {
-		fprintf(stderr, "Queue is empty, nothing to show \n");
-		sleep(2);
-		message = calloc(CHUNKSIZE, sizeof(char));
-		continue;
-	      }
-	      task = check_message_type(message);
-	      fprintf(stderr, "Real task nummber %d \n", (int)task);
-	      if(task == ERROR)
-	      {
-		get_filename_from_message(message, error_file_path);
-		fprintf(stderr, "Got task with type ERROR for filename %s \n", error_file_path);
-		continue;
-	      }
-	      if(task != DOWNLOAD)
-	      {
-		/* push to the end of queue */
-		fprintf(stderr, "Task type is not DOWNLOAD\n");
-		push(queue, message);
-		sleep(1);
-		continue;
-	      }
-	      else
-	      {
-		  tmpid = get_id_from_message(message);
-		  if(tmpid == id)
-		  {
-		      /*one of datagrams from servers*/
-		      fprintf(stderr, "Id of message and thread are the same \n");
-		      fprintf(stderr, "Got data for update \n");
-		      package_number = get_file_size_from_message(message);
-		      if(package_number == package_amount)
-		      {
-			fprintf(stderr, "Checking md5 sums \n");
-			file_contents = read_whole_file (real_file_name);
-			  if(file_contents == NULL) 
-			  {
-			    free (file_contents);
-			    free(real_file_name);
-			    free(package);
-			    return NULL;
-			  }
-			compute_md5(file_contents, md5_sum);
-			package = malloc(real_package_size);
-			strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char));
-			fprintf(stderr, "Got md5 sum %s for file %s \n", md5_sum, real_file_name);
-			for(i = 0; i< MD5LENGTH; i++)
-			{
-			  if(md5_sum[i] == '\0') break;
-			  if(((int)md5_sum[i] - (int)package[i] ) % 256 != 0)
-			  {
-			    fprintf(stdout, "Wrong md5 sum %s for field %d %d %d \n", real_file_name, i, (int)md5_sum[i], (int)package[i]);
-			    return NULL;
-			  }
-			}
-			fprintf(stdout, "Md5 sums correct for file %s \n", real_file_name);
-			break;
-		      }
-		      else
-		      {
-			fprintf(stderr, "Write data to update file \n");
-			package = malloc(real_package_size);
-			strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char));
-			if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDWR))) == -1)
-			{
-			  fprintf(stderr, "Could not open file \n");
-			  return NULL;
-			}
-			/*if (stat(real_file_name, &sts) != -1)
-			{
-			  switch(errno)
-			  {
-			    case EACCES:
-			      fprintf(stderr, "Permission denied for file %s \n", real_file_name);
-			      break;
-			    case EBADF:
-			      fprintf(stderr, "File descriptor is bad for file %s \n", real_file_name);
-			      break;
-			    case EFAULT:
-			      fprintf(stderr, "Bad address for file %s \n", real_file_name);
-			      break;
-			    case ELOOP:
-			      fprintf(stderr, "Too many symbolic links encountered while traversing the path %s \n", real_file_name);
-			      break;
-			    case ENAMETOOLONG:
-			      fprintf(stderr, "Path %s is too long \n", real_file_name);
-			      break;
-			    case ENOENT:
-			      fprintf(stderr, "Length of file name %s is %zu \n", real_file_name, strlen(real_file_name));
-			      fprintf(stderr, "A component of path %s does not exist, or path is an empty string \n", real_file_name);
-			      break;
-			    case ENOMEM:
-			      fprintf(stderr, "Out of memory for file %s \n", real_file_name);
-			      break;
-			    case ENOTDIR:
-			      fprintf(stderr, "A component of the path prefix of path %s is not a directory\n", real_file_name);
-			      break;
-			    case EOVERFLOW:
-			      fprintf(stderr, "path or fd refers to a file %s whose size, inode number, or number of blocks cannot be represented in, respectively, the types off_t, ino_t, or blkcnt_t\n", real_file_name);
-			      break;
-			    default:
-			      fprintf(stderr, "Uknonw error while trying to open file %s \n", real_file_name);
-			      break;      
-			  }
-			  fprintf(stderr, "Could not open file %s \n", real_file_name);
-			  return NULL;
-			}*/
-			fprintf(stderr, "Package number %d \n", package_number);
-			if(package_number == 0 || packages[package_number-1] == 1)
-			{	
-				packages[package_number] = 1;
-				if(lseek(fd, 0, SEEK_END) < 0)
-				{
-				  fprintf(stderr, "Could not write.\n");
-				  close(fd);
-				  continue;
-				}
-				bulk_write(fd, package, strlen(package));
-				fprintf(stderr, "Package was written to file %s \n", real_file_name);
-				close(fd);
-			}
-			else
-			{
-			  fprintf(stderr, "Pushing message back to queue \n");
-			  push(queue, message);
-			}
-		      }
-		  }
-		  else
-		  {
-		    fprintf(stderr, "Pushing message back to queue \n");
-		    push(queue, message);
-		  }
-	      }
-	  }
+	wait_for_packages(message, error_file_path, id, package_amount, should_download, real_file_name, packages);
+	
+	free(message);
+	free(error_file_path);
+	free(real_file_name);
+	fprintf(stderr, "Destroing DOWNLOAD thread\n");
 	pthread_exit(&targ);
 	return NULL;
 }
+
 
 void *upload_thread_function(void *arg)
 {
@@ -841,6 +687,7 @@ void *delete_thread_function(void *arg)
 	task_type task;
 	memcpy(&targ, arg, sizeof(targ));
 	message = calloc(CHUNKSIZE, sizeof(char));
+	int wait_for_delete_raport = 1;
 	if (work)
 	{
 		clientfd = *targ.socket;
@@ -854,38 +701,15 @@ void *delete_thread_function(void *arg)
 	}
 	
 	/*
-	 * receive communicate from server about existing file or not
+	 * receive communicate from server about confirmation of delete or not
 	 */
 	while(work)
 	{
-	      /* top from queue */
-	      if (top(queue, message) < 0)
-	      {
-		fprintf(stderr, "Queue is empty, nothing to show \n");
-		sleep(2);
-		message = calloc(CHUNKSIZE, sizeof(char));
+	      if(check_top_of_queue("DELETERESPONSE", &task, message, DELETERESPONSE, error_file_path) == 1)
 		continue;
-	      }
-	      task = check_message_type(message);
-	      fprintf(stderr, "real task nummber %d \n", (int)task);
-	      fprintf(stderr, "Real task nummber %d \n", (int)task);
-	      if(task == ERROR)
-	      {
-		get_filename_from_message(message, error_file_path);
-		fprintf(stderr, "Got task with type ERROR for filename %s \n", error_file_path);
-		continue;
-	      }
-	      if(task != DELETERESPONSE)
-	      {
-		/* push to the end of queue */
-		push(queue, message);
-		sleep(1);
-		continue;
-	      }
 	      /* waiting for confirmation or rejection of downloading file*/
-	      else if(id == -1)
+	      if(id == -1)
 	      {
-		
 		/* check the filepath saved in message*/
 		get_filename_from_message(message, filepath);
 		for(i = 0; i < FILENAME; i++)
@@ -907,14 +731,13 @@ void *delete_thread_function(void *arg)
 		  {
 		    /* error with file , show message */
 		    fprintf(stdout, "Could not delete  file %s, reason : %s \n", filepath, communicate);
-		    push(queue, message);
-		    pthread_exit(&targ);
-		    return NULL;
+		    wait_for_delete_raport = 0;
+		    break;
 		  }
 		  else
 		  {
 		    id = tmpid;
-		    fprintf(stdout, "Server confirmed planned deleting file  %s, \n  message : %s \n", filepath, communicate);
+		    fprintf(stdout, "Server confirmed planned deleting file  %s, message : %s \n", filepath, communicate);
 		    fprintf(stdout, "Got id %d \n", id);
 		    /* check if file exists if not create else check if is opened if not remove data and write own */
 		    break;
@@ -925,31 +748,10 @@ void *delete_thread_function(void *arg)
 	
 	fprintf(stderr, "Waiting for datagrams abour deleting file\n");
 
-	while(work)
+	while(work && wait_for_delete_raport)
 	{
-	      /* top from queue */
-	      if (top(queue, message) < 0)
-	      {
-		fprintf(stderr, "Queue is empty, nothing to show \n");
-		sleep(2);
-		message = calloc(CHUNKSIZE, sizeof(char));
+	      if(check_top_of_queue("DELETE", &task, message, DELETE, error_file_path) == 1)
 		continue;
-	      }
-	      task = check_message_type(message);
-	      fprintf(stderr, "Real task nummber %d \n", (int)task);
-	      if(task == ERROR)
-	      {
-		get_filename_from_message(message, error_file_path);
-		fprintf(stderr, "Got task with type ERROR for filename %s \n", error_file_path);
-		continue;
-	      }
-	      if(task != DELETE)
-	      {
-		/* push to the end of queue */
-		push(queue, message);
-		sleep(1);
-		continue;
-	      }
 	      else
 	      {
 		  tmpid = get_id_from_message(message);
@@ -958,7 +760,7 @@ void *delete_thread_function(void *arg)
 		      /*one of datagrams from servers*/
 		      fprintf(stderr, "Id of message and thread are the same \n");
 		      strcpy(communicate, message + 3 * sizeof(uint32_t)/ sizeof(char) + FILENAME);
-		      fprintf(stdout, "Server confirmed deleting file  %s, \n  message : %s \n", filepath, communicate);
+		      fprintf(stdout, "Server sends raport about deleting file  %s, message : %s \n", filepath, communicate);
 		      break;
 		  }
 		  else
@@ -967,12 +769,16 @@ void *delete_thread_function(void *arg)
 		  }
 	      }
 	  }
-
+	free(message);
+	free(error_file_path);
+	fprintf(stderr, "Destroing DELETE thread\n");
 	pthread_exit(&targ);
 	return NULL;
 }
 
-
+/*
+ * create thread for defined purpose
+ */
 void init(pthread_t *thread, thread_arg *targ, int *socket, struct sockaddr_in* server_addr, task_type task,
 	  char filepath [FILENAME])
 {
@@ -1065,7 +871,7 @@ struct sockaddr_in make_address(char *address, uint16_t port, int broadcast)
 	struct hostent *hostinfo;
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(port);
-	
+
 	if(address == NULL)
 	{
 	  if(broadcast == 0)
@@ -1082,7 +888,6 @@ struct sockaddr_in make_address(char *address, uint16_t port, int broadcast)
 	     */
 	    addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
 	  }
-	  
 	}
 	else
 	{
@@ -1094,7 +899,6 @@ struct sockaddr_in make_address(char *address, uint16_t port, int broadcast)
 		  HERR("gethostbyname");
 	  addr.sin_addr = *(struct in_addr*) hostinfo->h_addr;
 	}
-	
 	return addr;
 }
 
@@ -1119,11 +923,11 @@ void do_work(int socket)
     {
       continue;
     }
-
     if(TEMP_FAILURE_RETRY(close(socket)) < 0)
 	  ERR("CLOSE");
     fprintf(stderr,"Client has terminated.\n");
 }
+
 
 int main(int argc, char **argv)
 {
@@ -1149,33 +953,31 @@ int main(int argc, char **argv)
 	work = 1;
 	if (argc!=2)
 		usage(argv[0]);
-	
-	queue = createQueue(100);
+	queue = createQueue(QUEUECAPACITY);
 
 	fprintf(stdout,"%s", INSTRUCTION);
-
+	
 	sethandler(SIG_IGN, SIGPIPE);
 	sethandler(siginthandler, SIGINT);
-	
 
 	generate_register_message(message);
 
-	
 	my_endpoint_listening_addr = make_address(NULL, atoi(argv[1])+1 , 0);
 	socket = connect_socket(0, my_endpoint_listening_addr);
 	broadcast_adrr = make_address(NULL, atoi(argv[1]), 1);
 	broadcastsocket = connect_socket(1, my_endpoint_listening_addr);
 
-	if(send_message(broadcastsocket, broadcast_adrr, message, REGISTERSTRING) < 0)
-	{
-	  ERR("SEND");
-	}
-	
 	while(task != REGISTERRESPONSE)
 	{
-	  task = receive_message(broadcastsocket, &server_addr, message);
-	  if(task == ERROR)
-	    ERR("RECEIVE");
+	  if(send_message(broadcastsocket, broadcast_adrr, message, REGISTERSTRING) < 0)
+	  {
+	    ERR("SEND");
+	  }
+	  sleep(1);
+	  if(receive_message(broadcastsocket, &server_addr, message) == 0)
+	  {
+	    task = check_message_type(message);
+	  }
 	}
 	
 	if(TEMP_FAILURE_RETRY(close(broadcastsocket)) < 0)
@@ -1187,7 +989,7 @@ int main(int argc, char **argv)
 	init(thread, targ, &socket, &server_addr, NONE, NULL);
 	
 	do_work(socket);
-	
+	free_queue();
 	return EXIT_SUCCESS;
 }
 

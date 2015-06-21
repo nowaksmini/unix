@@ -44,6 +44,15 @@ void sethandler(void (*f)(int), int sigNo)
 }
 
 /*
+ * function responsible for handling SIGINT signal 
+ */
+void siginthandler(int sig)
+{
+	work = 0;
+}
+
+
+/*
  * str = whole file data
  * sum = output counted
  */
@@ -345,7 +354,6 @@ void get_filename_from_message(char *buf, char* filename)
    fprintf(stderr, "Got file name %s \n", filename);
 }
 
-
 /*
  * return id of message (data transfer)
  */
@@ -366,7 +374,7 @@ uint32_t get_id_from_message(char* buf)
  */
 uint32_t get_file_size_from_message(char* message)
 {
-    uint32_t i,Number = 0;
+	uint32_t i,Number = 0;
 	for(i = 0; i < sizeof(uint32_t)/sizeof(char); i++) 
 	{
 		((char*)&Number)[i] = message[i + 2*sizeof(uint32_t)/sizeof(char)];
@@ -388,6 +396,8 @@ void put_id_to_message(char * buf, uint32_t id_message)
 	}		
 }
 
+/* TO DO */
+
 unsigned get_file_size (const char * file_name)
 {
     struct stat sb;
@@ -399,10 +409,11 @@ unsigned get_file_size (const char * file_name)
     return sb.st_size;
 }
 
+/* TO DO */
+
 /* 
  *This routine reads the entire file into memory. 
  */
-
 char * read_whole_file (const char * file_name)
 {
     unsigned s;
@@ -489,7 +500,267 @@ void* server_send_response_function(void * arg, char * type_name, task_type expe
 		  break;
 		}
 	}
+	free(message);
+	free(error_file_path);
 	fprintf(stderr, "Destroing %s thread\n" , type_name);
 	pthread_exit(&targ);
 	return NULL;
+}
+
+/*
+ * receiving message and remembering address
+ */
+int receive_message (int socket, struct sockaddr_in* receiver_addr, char* message)
+{
+	task_type task;
+	char * message_type = ERRORSTRING;
+	char tmp[CHUNKSIZE];
+	fprintf(stderr, "Trying to receive message\n");
+	/*
+	* int sockfd, const void *buf, size_t len, int flags,
+		    const struct sockaddr *dest_addr, socklen_t addrlen);
+	*/
+	socklen_t size = sizeof(struct sockaddr_in);
+	if(recvfrom(socket, message, CHUNKSIZE, 0, receiver_addr, &size) < 0)
+	{
+	      fprintf(stderr, "Failed receving message\n");
+	      return -1;
+	}
+	/*
+	* success
+	*/
+	task = check_message_type(message);
+	switch(task)
+	{
+	  case REGISTER:
+	    message_type = REGISTERSTRING;
+	    break;
+	  case DOWNLOAD:
+	    message_type = DOWNLOADSTRING;
+	    break;
+	  case UPLOAD:
+	    message_type = UPLOADSTRING;
+	    break;
+	  case DELETE:
+	    message_type = DELETESTRING;
+	    break;
+	  case LIST:
+	    message_type = LISTSTRING;
+	    break;
+	  case REGISTERRESPONSE:
+	    message_type = REGISTERRESPONSESTRING;
+	    break;
+	  case DOWNLOADRESPONSE:
+	    message_type = DOWNLOADRESPONSESTRING;
+	    break;
+	  case UPLOADROSPONSE:
+	    message_type = UPLOADRESPONSESTRING;
+	    break;
+	  case DELETERESPONSE:
+	    message_type = DELETERESPONSESTRING;
+	    break;
+	  case LISTRESPONSE:
+	    message_type = LISTRESPONSESTRING;
+	    break;
+	  default:
+	    return -1;
+	}
+	fprintf(stderr, "Received message %s succeeded\n", message_type);
+	strcpy(tmp, message + sizeof(uint32_t)/sizeof(char));
+	fprintf(stderr, "Real message received = %s \n", tmp);
+	return 0;
+}
+
+/*
+ * sending message
+ */
+int send_message (int socket, struct sockaddr_in receiver_addr, char* message, char* message_type)
+{
+  char tmp[CHUNKSIZE];
+  int port = receiver_addr.sin_port;
+  fprintf(stderr, "Receiver port %d \n", port);
+  fprintf(stderr, "Trying to send message %s \n", message_type);
+  
+  /*
+   * int sockfd, const void *buf, size_t len, int flags,
+               const struct sockaddr *dest_addr, socklen_t addrlen);
+   */
+  if(TEMP_FAILURE_RETRY(sendto(socket, message, CHUNKSIZE, 0, &receiver_addr, sizeof(struct sockaddr_in))) < 0)
+  {
+    /*
+     * failure
+     */
+    fprintf(stderr, "Sending message %s failed \n", message_type);
+    return -1;
+  }
+  /*
+   * success
+   */
+  fprintf(stderr, "Sending message %s succeeded \n", message_type);
+  
+  strcpy(tmp, message + 3*sizeof(uint32_t)/sizeof(char));
+
+  fprintf(stderr, "Real message send =  %s  \n", tmp);
+  return 0;
+}
+
+/*
+ * at the end of executing programs free queue
+ */
+void free_queue()
+{
+  free(queue->elements);
+  free(queue);
+}
+
+/*
+ * create specified file, handle errors
+ */
+uint8_t create_file(char* real_file_name, int* filesize, int real_package_size, 
+				int* package_amount, uint8_t** packages, char* message)
+{
+  int fd;
+  while(1)
+	{
+	  fd = open(real_file_name, O_RDWR);
+	  if(fd < 0)
+	  {
+	    if(errno == ENOENT)
+	    {
+	      /* file does not exists */
+	      while(1)
+	      {
+		fd = open(real_file_name, O_RDWR | O_CREAT, S_IRWXU | S_IRGRP | S_IROTH);
+		if(fd < 0)
+		{
+		  if(errno == EINTR)
+		    continue;
+		  else 
+		  {
+		    fprintf(stderr, "Could not open file %s %s \n", real_file_name, strerror(errno));
+		    return 1;
+		  }
+		}
+		else
+		{
+		  close_file(&fd, real_file_name);
+		  break;
+		}
+	      }
+	      fprintf(stderr, "Creating new file \n");
+	      *filesize = get_file_size_from_message(message);
+	      if(*filesize == *filesize / real_package_size * real_package_size)
+		*package_amount = *filesize / real_package_size;
+	      else 
+		*package_amount = *filesize / real_package_size + 1;
+	      *packages = (uint8_t*) calloc(*package_amount, sizeof(uint8_t));
+	      if(*packages == NULL)
+	      {
+		fprintf(stderr, "Could not allocate memory for packages \n");
+		return 1;
+	      }
+	      break;
+	    }
+	    else if(errno == EINTR)
+	      continue;
+	    else
+	    {
+	      fprintf(stderr, "Could not open file %s %s", real_file_name, strerror(errno));
+	      return 1;
+	    }
+	  }
+	  else
+	  {
+	    fprintf(stdout, "File already exists!\n");
+	    close_file(&fd, real_file_name);
+	    return 1;
+	  }
+	}
+	return 0;
+}
+
+/* return 0 if file exists and was opened */
+uint8_t open_file(char* real_file_name, int *fd)
+{
+  while(1)
+	{
+	  *fd = open(real_file_name, O_RDWR);
+	  if(*fd < 0)
+	  {
+	    if(errno == ENOENT)
+	    {
+	      /* file does not exists */
+	      return 1;
+	    }
+	    else if(errno == EINTR)
+	      continue;
+	    else
+	    {
+	      fprintf(stderr, "Could not open file %s %s", real_file_name, strerror(errno));
+	      return 1;
+	    }
+	  }
+	  else
+	  {
+	    fprintf(stdout, "File already exists!\n");
+	    close_file(fd, real_file_name);
+	    return 0;
+	  }
+	}
+	return 0;
+}
+
+/*
+ * close file, handle errors
+ */
+void close_file(int* fd, char* real_file_name)
+{
+  while(close(*fd) < 0)
+  {
+    if(errno == EINTR)
+      continue;
+    else
+    {
+      fprintf(stderr, "Could not close file %s %s", real_file_name, strerror(errno));
+      break;
+    }
+  }
+}
+
+/*
+ * check top of queue and if type of message is not as expected push message to queue again
+ * if any existed and return 1 else return 0;
+ */
+uint8_t check_top_of_queue(char* message_type, task_type* task, char* message, task_type expected_task, char* error_file_path)
+{
+	/* top from queue */
+	fprintf(stderr, "Waiting to receive %s \n", message_type);
+	if (top(queue, message) < 0)
+	{
+	  fprintf(stderr, "Queue is empty, nothing to show \n");
+	  sleep(2);
+	  message = calloc(CHUNKSIZE, sizeof(char));
+	  if(message == NULL)
+	  {
+	    fprintf(stderr, "Problem with allocating memoryfor message \n");
+	  }
+	  return 1;
+	}
+	*task = check_message_type(message);
+	fprintf(stderr, "Real task nummber %d \n", (int)(*task));
+	if(*task == ERROR)
+	{
+	  get_filename_from_message(message, error_file_path);
+	  fprintf(stderr, "Got task with type ERROR for filename %s \n", error_file_path);
+	  return 1;
+	}
+	if(*task != expected_task)
+	{
+	  /* push to the end of queue */
+	  fprintf(stderr, "Task type is not %s\n", message_type);
+	  push(queue, message);
+	  sleep(1);
+	  return 1;
+	}
+	return 0;
 }

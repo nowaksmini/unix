@@ -40,8 +40,8 @@
 #define NOACTIONSTRING "no action"
 
 
-#define DOWNLOADRESPONSEERROR "No such file\n"
-#define DELETEERESPONSEERROR "No such file\n"
+#define DOWNLOADRESPONSEERROR "Could not download file\n"
+#define DELETEERESPONSEERROR "Could not delete file\n"
 #define DELETEACCESSDENYIED "Access is denyied\n"
 #define DOWNLOADRESPONSESUCCESS "Registered request to downolad file successfully"
 #define REGISTERRESPONSESUCCESS "Registered client successfully"
@@ -57,7 +57,7 @@
 #define CLIENTREQUESTS "Client requests registration"
 #define FILENAME 50		     
 #define CHUNKSIZE 100
-
+#define QUEUECAPACITY 200
 
 typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNLOADRESPONSE, 
   UPLOADROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR, NONE} task_type;
@@ -83,6 +83,8 @@ Queue* queue;
 task_type convert_uint32_to_task_type(uint32_t number);
 
 uint32_t convert_task_type_to_uint32(task_type task);
+
+void siginthandler(int sig);
 
 void siginthandler(int sig);
 
@@ -120,5 +122,18 @@ char * read_whole_file (const char * file_name);
 
 void* server_send_response_function(void * arg, char * type_name, task_type expected_type, void (*function) (char*, int, struct sockaddr_in));
 
+int receive_message (int socket, struct sockaddr_in* received_addr, char* message);
+
+int send_message (int socket, struct sockaddr_in receiver_addr, char* message, char* message_type);
+
+void free_queue();
+
+uint8_t create_file(char* real_file_name, int* filesize, int real_package_size, int* package_amount, uint8_t** packages, char* message);
+
+void close_file(int* fd, char* real_file_name);
+
+uint8_t open_file(char* real_file_name, int *fd);
+
+uint8_t check_top_of_queue(char* message_type, task_type* task, char* message, task_type expected_task, char* error_file_path);
 #endif
  
