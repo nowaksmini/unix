@@ -337,6 +337,7 @@ void* wait_for_packages(char* message_type, task_type expected_type, char *messa
 {
 	task_type task;
 	int i;
+	int correct_sum = 0;
 	int tmp_id;
 	int package_number;
 	char* file_contents;
@@ -395,19 +396,26 @@ void* wait_for_packages(char* message_type, task_type expected_type, char *messa
 						{
 							break;
 						}
+						memset(md5_sum, 0, MD5LENGTH);
 						compute_md5(file_contents, md5_sum);
-
 						fprintf(stderr, "Got md5 sum %s for file %s \n", md5_sum, real_file_name);
 						for(i = 0; i< MD5LENGTH; i++)
 						{
-							if(md5_sum[i] == '\0') break;
+							if(md5_sum[i] == '\0') 
+							{
+								correct_sum = 1;
+								break;
+							}
 							if(((int)md5_sum[i] - (int)package[i] ) % 256 != 0)
 							{
-								fprintf(stdout, "Wrong md5 sum %s for field %d %d %d \n", real_file_name, i, (int)md5_sum[i], (int)package[i]);
+								correct_sum = 0;
 								break;
 							}
 						}
-						fprintf(stdout, "Md5 sums correct for file %s \n", real_file_name);
+						if(correct_sum == 1 || i == MD5LENGTH)
+							fprintf(stdout, "Md5 sums correct for file %s \n", real_file_name);
+						else
+							fprintf(stdout, "Wrong md5 sum %s for field %d %d %d \n", real_file_name, i, (int)md5_sum[i], (int)package[i]);
 						break;
 					}
 					else
