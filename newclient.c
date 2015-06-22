@@ -1036,7 +1036,7 @@ int main(int argc, char **argv)
 	if (argc!=2)
 		usage(argv[0]);
 	queue = createQueue(QUEUECAPACITY);
-
+	inicialize_file_mutex();
 	fprintf(stdout,"%s", INSTRUCTION);
 
 	sethandler(SIG_IGN, SIGPIPE);
@@ -1072,6 +1072,7 @@ int main(int argc, char **argv)
 
 	do_work(socket);
 	free_queue();
+	free_file_mutex();
 	return EXIT_SUCCESS;
 }
 

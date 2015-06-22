@@ -68,7 +68,8 @@ typedef struct Queue
 {
         int capacity;
         int size;
-	int busy;
+		int busy;
+		pthread_mutex_t* access;
         char* elements;
 }Queue;
 
@@ -81,6 +82,11 @@ typedef struct
 
 volatile sig_atomic_t work;
 Queue* queue;
+pthread_mutex_t* file_access;
+
+void inicialize_file_mutex();
+
+void free_file_mutex();
 
 int rand_range(int min_n, int max_n);
 
@@ -124,6 +130,10 @@ int get_file_size (const char * file_name);
 
 char * read_whole_file (const char * file_name);
 
+uint32_t delete_status_from_list(char* file_name, char* searched_file_name);
+
+uint32_t write_status_to_list(int message_id, char* file_name, char* searched_file_name,  int percentage, int package_numbers, int last_package);
+
 void* server_send_response_function(void * arg, char * type_name, task_type expected_type, void (*function) (task_type task, char*, int, struct sockaddr_in));
 
 int receive_message (int socket, struct sockaddr_in* received_addr, char* message);
@@ -131,6 +141,10 @@ int receive_message (int socket, struct sockaddr_in* received_addr, char* messag
 int send_message (int socket, struct sockaddr_in receiver_addr, char* message, char* message_type);
 
 void free_queue();
+
+uint8_t create_list_file(char* file_name);
+
+uint8_t read_all_files_to_list(char* file_name);
 
 uint8_t create_file(char* real_file_name, int* filesize, int real_package_size, int* package_amount, uint8_t** packages, char* message);
 

@@ -111,6 +111,10 @@ void generate_delete_response_message(task_type task, char* message, int socket,
 			else
 			{
 				fprintf(stderr, "Removed file %s success\n", real_file_name);
+				if(delete_status_from_list(LISTFILE, real_file_name) == 1)
+				{
+					fprintf(stderr, "Could not update list file \n");
+				}
 				strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETERESPONSESUCCESS);
 				break;
 			}
@@ -207,6 +211,10 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 				fprintf(stderr, "Server pushed filename %s and id %u to successful upload register response message \n", filepath, id);
 				send_message(socket, client_addr, message, UPLOADRESPONSESTRING);
 				fprintf(stderr, "Waiting for upload response from client \n");
+				if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (i) * 100 / package_amount, package_amount, i) == 1)
+				{
+					fprintf(stderr, "Could not update list \n");
+				}
 				while(work)
 				{
 					sleep(1);
@@ -224,6 +232,10 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 							package_number = get_file_size_from_message(message);
 							memset(package, 0, real_package_size * sizeof(char));
 							strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char));
+							if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (package_number+1) * 100 / package_amount, package_amount, package_number) == 1)
+							{
+								fprintf(stderr, "Could not update list \n");
+							}
 							if(package_number == package_amount)
 							{
 								fprintf(stderr, "Checking md5 sums \n");
@@ -360,7 +372,7 @@ uint8_t generate_download_response_message(task_type response_task, char* respon
 	return 0;
 }
 
-void send_file_packages(task_type task, char* task_message, char* message, int tmp_id, char* file_contents, char* package, unsigned char* md5_sum,
+void send_file_packages(char* real_file_name, task_type task, char* task_message, char* message, int tmp_id, char* file_contents, char* package, unsigned char* md5_sum,
 		int socket, struct sockaddr_in client_addr, int size)
 {
 	int i, j;
@@ -395,6 +407,13 @@ void send_file_packages(task_type task, char* task_message, char* message, int t
 			strcpy(message + 3*sizeof(uint32_t)/sizeof(char), package);
 			fprintf(stderr, "Sending data package number %d for task id %d : %s \n", i, tmp_id, package);
 			send_message(socket, client_addr, message, task_message);
+			if(package_amount != 0)
+			{
+				if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (i) * 100 / package_amount, package_amount, i) == 1)
+			{
+				fprintf(stderr, "Could not update list \n");
+			}
+			}
 			sleep(1);
 		}
 		memset(message, 0, CHUNKSIZE);
@@ -404,6 +423,10 @@ void send_file_packages(task_type task, char* task_message, char* message, int t
 		fprintf(stderr, "Sending md5 sum for task id %d \n", tmp_id);
 		strcpy(message + 3*sizeof(uint32_t)/sizeof(char), (char*)md5_sum);
 		send_message(socket, client_addr, message, task_message);
+		if(write_status_to_list(tmp_id, LISTFILE, real_file_name, 100, package_amount, package_amount) == 1)
+			{
+				fprintf(stderr, "Could not update list \n");
+			}
 		sleep(1);
 	}
 }
@@ -497,7 +520,7 @@ void read_file(task_type task, char* messagein, int socket, struct sockaddr_in c
 			task_message = DOWNLOADSTRING;
 		else
 			task_message = LISTSTRING;
-		send_file_packages(task, task_message, message, tmp_id, file_contents, package, md5_sum,
+		send_file_packages(real_file_name, task, task_message, message, tmp_id, file_contents, package, md5_sum,
 				socket, client_addr, size);
 		free (file_contents);
 	}
@@ -702,11 +725,22 @@ int main(int argc, char **argv)
 	my_endpoint_listening_addr = make_address(atoi(argv[1]));
 
 	socket = connect_socket(my_endpoint_listening_addr);
-
+	
 	queue = createQueue(QUEUECAPACITY);
+	inicialize_file_mutex();
+	if(create_list_file(LISTFILE) == 1)
+		fprintf(stderr, "Problem with creating list file \n");
+		else
+		{
+			if(read_all_files_to_list(LISTFILE) == 1)
+			{
+				fprintf(stderr, "Problem with writing record to list \n");
+			}
+		}
 	fprintf(stderr, "Created queue \n");
 
 	do_work(socket);
 	free_queue();
+	free_file_mutex();
 	return EXIT_SUCCESS;
 }

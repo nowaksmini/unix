@@ -16,8 +16,21 @@
 #include <sys/stat.h>
 #include <inttypes.h>
 #include <openssl/md5.h>
+#include <dirent.h> 
 #include "library.h"
 
+
+void inicialize_file_mutex()
+{
+	pthread_mutex_t *mut = (pthread_mutex_t*) malloc(sizeof(pthread_mutex_t));
+	*mut = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+	file_access = mut;
+}
+
+void free_file_mutex()
+{
+	free(file_access);
+}
 
 /*
  * random number from min and max value
@@ -77,6 +90,8 @@ Queue * createQueue(int maxElements)
 {
 	/* Create a Queue */
 	Queue *Q;
+	pthread_mutex_t *mut = (pthread_mutex_t*) malloc(sizeof(pthread_mutex_t));
+	*mut = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
 	Q = (Queue *)malloc(sizeof(Queue));
 	/* Initialize it's properties */
 	Q->elements = (char *)calloc(maxElements*CHUNKSIZE, sizeof(char));
@@ -84,6 +99,7 @@ Queue * createQueue(int maxElements)
 	Q->capacity = maxElements;
 	/* Return the pointer */
 	Q->busy = 0;
+	Q->access = mut;
 	return Q;
 }
 
@@ -94,25 +110,40 @@ void push(Queue* queue, char* message)
 {
 	int i;
 	int move;
-	while(queue->busy)
+	while(1)
 	{
-		sleep(1);
+		pthread_mutex_lock(queue->access);
+		if (queue->busy)
+		{
+			pthread_mutex_unlock(queue->access);
+			sleep(1);
+		}
+		else
+			break;
 	}
 	queue->busy = 1;
+	pthread_mutex_unlock(queue->access);
+	
 	move = (queue->size) * CHUNKSIZE;
 	while(queue->size == queue->capacity)
 	{
+		pthread_mutex_lock(queue->access);
 		queue->busy = 0;
+		pthread_mutex_unlock(queue->access);
 		fprintf(stderr, "Too many elements in queue waiting... \n");
 		sleep(2);
 	}
+	pthread_mutex_lock(queue->access);
 	queue->busy = 1;
+	pthread_mutex_unlock(queue->access);
 	for(i = move; i < CHUNKSIZE + move; i++)
 	{
 		queue->elements[i] = message[i - move];
 	}
 	queue->size = queue->size + 1;
+	pthread_mutex_lock(queue->access);
 	queue->busy = 0;
+	pthread_mutex_unlock(queue->access);
 }
 
 /*
@@ -122,14 +153,24 @@ void push(Queue* queue, char* message)
 int top(Queue* queue, char* message)
 {
 	int i;
-	while(queue->busy)
+	while(1)
 	{
-		sleep(1);
+		pthread_mutex_lock(queue->access);
+		if (queue->busy)
+		{
+			pthread_mutex_unlock(queue->access);
+			sleep(1);
+		}
+		else
+			break;
 	}
 	queue->busy = 1;
+	pthread_mutex_unlock(queue->access);
 	if(queue->size == 0)
 	{
+		pthread_mutex_lock(queue->access);
 		queue->busy = 0;
+		pthread_mutex_unlock(queue->access);
 		fprintf(stderr, "Empty queue \n");
 		return -1;
 	}
@@ -147,7 +188,9 @@ int top(Queue* queue, char* message)
 		queue->elements[i] = messages[i];
 	}
 	queue->size = queue->size -1;
+	pthread_mutex_lock(queue->access);
 	queue->busy = 0;
+	pthread_mutex_unlock(queue->access);
 	return 0;
 }
 
@@ -599,6 +642,7 @@ int send_message (int socket, struct sockaddr_in receiver_addr, char* message, c
 void free_queue()
 {
 	free(queue->elements);
+	free(queue->access);
 	free(queue);
 }
 
@@ -670,6 +714,256 @@ uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
 			return 1;
 		}
 	}
+	return 0;
+}
+
+uint32_t delete_status_from_list(char* file_name, char* searched_file_name)
+{
+	pthread_mutex_lock(file_access);
+	int id, i;
+	char* tmp_percentage = NULL;
+	char filepath[FILENAME];
+	char* done = NULL;
+	FILE* file = fopen(file_name, "r");
+	if(file == NULL)
+		return 1;/* should check the result */
+    char line[CHUNKSIZE];
+	char all[CHUNKSIZE * CHUNKSIZE];
+	int last = 0;
+    while (fgets(line, sizeof(line), file)) {
+		if(sscanf(line, "%d %s %s %s\n", &id, filepath, tmp_percentage, done) == EOF)
+		{
+			fprintf(stderr, "END OF SSCANF \n");
+		}
+		else
+		{
+			if(strcmp(filepath, searched_file_name) == 0)
+			{
+				memset(line, 0, CHUNKSIZE * sizeof(char));
+			}
+			for(i = 0; i < CHUNKSIZE; i++)
+			{
+				all[i + last] = line[i];
+			}
+			last = last + strlen(line);
+		}
+    }
+    if(fclose(file) == EOF)
+	{
+		fprintf(stderr, "Could not close file %s \n", file_name);
+				    pthread_mutex_unlock(file_access);
+		return 1;
+	}
+    file = fopen(file_name, "w");
+    if(file == NULL)
+    {
+		    pthread_mutex_unlock(file_access);
+		return 1;/* should check the result */
+	}
+	fprintf(file, "%s", all);
+	if(fclose(file) == EOF)
+	{
+		fprintf(stderr, "Could not close file %s \n", file_name);
+		    pthread_mutex_unlock(file_access);
+
+		return 1;
+	}
+    pthread_mutex_unlock(file_access);
+    return 0;
+}
+
+/*
+ * try to write record to file list, retrn 1 on errro, 0 on success
+ */
+uint32_t write_status_to_list(int message_id, char* file_name, char* searched_file_name, int percentage, int package_numbers, int last_package)
+{
+	pthread_mutex_lock(file_access);
+	int id, i;
+	char* tmp_percentage = NULL;
+	char filepath[FILENAME];
+	int tmp_package_numbers = 0;
+	int tmp_last_package = 0;
+	FILE* file = fopen(file_name, "r");
+	if(file == NULL)
+		return 1;/* should check the result */
+    char line[CHUNKSIZE];
+	char all[CHUNKSIZE * CHUNKSIZE];
+	int last = 0;
+	int exists = 0;
+	if(percentage > 100)
+		percentage = 100;
+    while (fgets(line, sizeof(line), file)) {
+		if(sscanf(line, "%d %s %s %d %d\n", &id, filepath, tmp_percentage, &tmp_package_numbers, &tmp_last_package) == EOF)
+		{
+			fprintf(stderr, "END OF SSCANF \n");
+		}
+		else
+		{
+			if(strcmp(filepath, searched_file_name) == 0)
+			{
+				memset(line, 0, CHUNKSIZE * sizeof(char));
+				sprintf(line, "%d %s %d%% %d %d\n", message_id, searched_file_name, percentage, package_numbers, last_package);
+				fprintf(stderr, "GOT LINE %s", line);
+				exists = 1;
+			}
+			for(i = 0; i < CHUNKSIZE; i++)
+			{
+				all[i + last] = line[i];
+			}
+			last = last + strlen(line);
+		}
+    }
+    if(exists == 0)
+    {
+		sprintf(line, "%d %s %d%% %d %d\n", message_id, searched_file_name, percentage, package_numbers, last_package);
+		fprintf(stderr, "GOT NEW LINE %s", line);
+		for(i = 0; i < CHUNKSIZE; i++)
+			{
+				all[i + last] = line[i];
+			}
+	}
+    if(fclose(file) == EOF)
+	{
+		fprintf(stderr, "Could not close file %s \n", file_name);
+				    pthread_mutex_unlock(file_access);
+		return 1;
+	}
+    file = fopen(file_name, "w");
+    if(file == NULL)
+    {
+		    pthread_mutex_unlock(file_access);
+		return 1;/* should check the result */
+	}
+	fprintf(file, "%s", all);
+	if(fclose(file) == EOF)
+	{
+		fprintf(stderr, "Could not close file %s \n", file_name);
+		    pthread_mutex_unlock(file_access);
+
+		return 1;
+	}
+    pthread_mutex_unlock(file_access);
+    return 0;
+}
+
+/*
+ * return 0 for successfull opening and creating file -> descriptor is closed
+ */
+uint8_t create_list_file(char* file_name)
+{
+	int fd;
+	pthread_mutex_lock(file_access);
+	while(1)
+	{
+		fd = open(file_name, O_RDWR | O_CREAT, S_IRWXU | S_IRGRP | S_IROTH);
+		if(fd < 0)
+		{
+			if(errno == EINTR)
+				continue;
+			else
+			{
+				fprintf(stderr, "Could not open file %s %s", file_name, strerror(errno));
+				    pthread_mutex_unlock(file_access);
+				return 1;
+			}
+		}
+		else
+		{
+			fprintf(stdout, "Success in creating list file\n");
+			close_file(&fd, file_name);
+			    pthread_mutex_unlock(file_access);
+			return 0;
+		}
+	}
+	    pthread_mutex_unlock(file_access);
+	return 0;
+}
+
+/*
+ * read all files to list if file is empty else do nothing
+ */
+uint8_t read_all_files_to_list(char* file_name)
+{
+	int i;
+	int size = 0;
+	DIR *d;
+	int fd;
+	struct dirent *dir;
+	d = opendir(".");
+	char record[CHUNKSIZE];
+	char* file;
+	pthread_mutex_lock(file_access);
+	while(1)
+	{
+		fd = open(file_name, O_RDWR);
+		if(fd < 0)
+		{
+			if(errno == EINTR)
+				continue;
+			else
+			{
+				fprintf(stderr, "Could not open file %s %s", file_name, strerror(errno));
+				    pthread_mutex_unlock(file_access);
+				return 1;
+			}
+		}
+		else
+		{
+			fprintf(stdout, "Success in opening list file\n");
+			size = get_file_size (file_name);
+			if(size == -1) 
+			{
+				fprintf(stdout, "Could not read file size of list %s\n", file_name);
+				    pthread_mutex_unlock(file_access);
+				return 1;
+			}
+			if(size == 0)
+			{
+				/* add new records task_id file_name percentage array */
+				if (d)
+				{
+					while ((dir = readdir(d)) != NULL)
+					{
+					  memset(record, 0, CHUNKSIZE);
+					  file = dir->d_name;
+					  if(strlen(file) == 0 || file[0] == '\0')
+						continue;
+					  record[0] = '0';
+					  record[1] = ' ';
+					  for(i = 0; i< strlen(file); i++)
+					  {
+						  record[2 + i] = file[i];
+					  }
+					  record[2+i] = ' ';
+					  record[2+i+1] = '1';
+					  record[2+i+2] = '0';
+					  record[2+i+3] = '0';
+					  record[2+i+4] = '%';
+					  record[2+i+5] = ' ';
+					  record[2+i+6] = '0';
+					  record[2+i+7] = ' ';
+					  record[2+i+8] = '0';
+					  record[2+i+9] = '\n';
+					  record[2+i+10] = '\0';
+					  if(bulk_write(fd, record, strlen(record)) != strlen(record))
+					  {
+						  fprintf(stderr, "Could not write all bytes \n");
+					  }
+					}
+					if(closedir(d) < 0)
+						{
+							fprintf(stderr, "Could not close dir\n");
+							    pthread_mutex_unlock(file_access);
+							return 1;
+						}
+				}
+			}
+			close_file(&fd, file_name);
+			    pthread_mutex_unlock(file_access);
+			return 0;
+		}
+	}
+	    pthread_mutex_unlock(file_access);
 	return 0;
 }
 
