@@ -257,26 +257,27 @@ void generate_upload_response_message(int* my_id, char* message, int socket, str
 /*
  * generate message to inform client about any error during download task
  */
-void generate_failed_download(char* message, char * filepath, int message_id)
+void generate_failed_download(task_type response_task, char* response_error, char* message, char * filepath, int message_id)
 {
-	save_massage_type_to_message(DOWNLOADRESPONSE, message);
+	save_massage_type_to_message(response_task, message);
 	put_id_to_message(message, message_id);
 	strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
-	strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DOWNLOADRESPONSEERROR);
+	strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, response_error);
 	fprintf(stderr, "Server pushed filename %s to unsuccessfull download register response message \n", filepath);
 }
 
 /*
  * send download response, return 1 if error, 0 means that client can download file
  */
-uint8_t generate_download_response_message(char* real_file_name, char* message, char* filepath, int message_id, char** file_contents, unsigned char* md5_sum,
-		int* tmp_id, int* size)
+uint8_t generate_download_response_message(task_type response_task, char* response_error, char* response_success,
+											char* real_file_name, char* message, char* filepath, int message_id, 
+											char** file_contents, unsigned char* md5_sum, int* tmp_id, int* size)
 {
 	int fd;
 	struct stat sts;
 	if (stat(real_file_name, &sts) == -1)
 	{
-		generate_failed_download(message, filepath, message_id);
+		generate_failed_download(response_task, response_error, message, filepath, message_id);
 		return 1;
 	}
 	else
@@ -285,7 +286,7 @@ uint8_t generate_download_response_message(char* real_file_name, char* message, 
 		if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDONLY))) == -1)
 		{
 			fprintf(stderr, "Could not open file %s \n", real_file_name);
-			generate_failed_download(message, filepath, message_id);
+			generate_failed_download(response_task, response_error, message, filepath, message_id);
 			return 1;
 		}
 		else
@@ -297,12 +298,12 @@ uint8_t generate_download_response_message(char* real_file_name, char* message, 
 			*file_contents = read_whole_file (real_file_name);
 			if(file_contents == NULL)
 			{
-				generate_failed_download(message, filepath, message_id);
+				generate_failed_download(response_task, response_error, message, filepath, message_id);
 				return 1;
 			}
 			compute_md5(*file_contents, md5_sum);
 			strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
-			strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DOWNLOADRESPONSESUCCESS);
+			strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, response_success);
 		}
 		close_file(&fd, real_file_name);
 	}
@@ -375,6 +376,9 @@ void read_file(task_type task, char* messagein, int socket, struct sockaddr_in c
 	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
 	char *package;
 	char * task_message;
+	task_type response_task;
+	char* response_error;
+	char* response_success;
 	package = malloc(real_package_size);
 	if(package == NULL)
 	{
@@ -385,7 +389,19 @@ void read_file(task_type task, char* messagein, int socket, struct sockaddr_in c
 	memset(filepath, 0, FILENAME);
 	memset(md5_sum, 0, MD5LENGTH);
 	get_filename_from_message(messagein, filepath);
-	save_massage_type_to_message(DOWNLOADRESPONSE, message);
+	if(task == DOWNLOAD)
+	{
+		response_task = DOWNLOADRESPONSE;
+		response_error = DOWNLOADRESPONSEERROR;
+		response_success = DOWNLOADRESPONSESUCCESS;
+	}
+	else
+	{
+		response_task = LISTRESPONSE;
+		response_error = LISTRESPONSEERROR;
+		response_success = LISTRESPONSESUCCESS;
+	}
+	save_massage_type_to_message(response_task, message);
 
 	for(i = 0; i < FILENAME; i++)
 	{
@@ -410,9 +426,14 @@ void read_file(task_type task, char* messagein, int socket, struct sockaddr_in c
 	fprintf(stderr, "Real file name : %s \n", real_file_name);
 	fprintf(stderr, "Real file name size %zu \n", strlen(real_file_name));
 
-	if(generate_download_response_message(real_file_name, message, filepath, message_id, &file_contents, md5_sum, &tmp_id, &size) == 0)
+	if(generate_download_response_message(response_task, response_error, response_success, real_file_name, message, 
+		filepath, message_id, &file_contents, md5_sum, &tmp_id, &size) == 0)
 	{
-		send_message(socket, client_addr, message, DOWNLOADRESPONSESTRING);
+		if(task == DOWNLOAD)
+			task_message = DOWNLOADRESPONSESTRING;
+		else
+			task_message = LISTRESPONSESTRING;
+		send_message(socket, client_addr, message, task_message);
 		sleep(1);
 		/*
 		 * clear message
@@ -421,8 +442,8 @@ void read_file(task_type task, char* messagein, int socket, struct sockaddr_in c
 		/*
 		 * divide whole file to smaller one packages of size CHUNKSIZE - TYPE_LENGTH - TASK_ID_LENGTH - PACKAGE_NUMBER
 		 */
-		if(task == DELETE)
-			task_message = DELETESTRING;
+		if(task == DOWNLOAD)
+			task_message = DOWNLOADSTRING;
 		else
 			task_message = LISTSTRING;
 		send_file_packages(task, task_message, message, tmp_id, file_contents, package, md5_sum,
@@ -565,6 +586,8 @@ void init(pthread_t *thread, thread_arg *targ, int *socket, struct sockaddr_in* 
 	default:
 		ERR("INIT");
 	}
+	if (pthread_detach(thread[0]) !=  0)
+		ERR("detach");
 }
 
 /*

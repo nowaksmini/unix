@@ -47,6 +47,7 @@
 #define REGISTERRESPONSESUCCESS "Registered client successfully"
 #define DELETERESPONSESUCCESS "Registered request to delete file successfully"
 #define LISTRESPONSESUCCESS "Registered request to list all files successfully"
+#define LISTRESPONSEERROR "Could not list files"
 #define UPLOADRESPONSESUCCESS "Registered request to upload file to server successfully"
 #define UPLOADRESPONSEERROR "Registered request to upload file to server abandoned"
 
@@ -133,6 +134,8 @@ void free_queue();
 uint8_t create_file(char* real_file_name, int* filesize, int real_package_size, int* package_amount, uint8_t** packages, char* message);
 
 void close_file(int* fd, char* real_file_name);
+
+void generate_package_amount(int* filesize, int real_package_size, int* package_amount, char* message);
 
 uint8_t open_file(char* real_file_name, int *fd);
 

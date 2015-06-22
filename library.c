@@ -605,6 +605,15 @@ void free_queue()
 	free(queue);
 }
 
+void generate_package_amount(int* filesize, int real_package_size, int* package_amount, char* message)
+{
+	*filesize = get_file_size_from_message(message);
+	if(*filesize == *filesize / real_package_size * real_package_size)
+		*package_amount = *filesize / real_package_size;
+	else
+		*package_amount = *filesize / real_package_size + 1;
+}
+
 /*
  * create specified file, handle errors
  */
@@ -640,11 +649,7 @@ uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
 					}
 				}
 				fprintf(stderr, "Creating new file \n");
-				*filesize = get_file_size_from_message(message);
-				if(*filesize == *filesize / real_package_size * real_package_size)
-					*package_amount = *filesize / real_package_size;
-				else
-					*package_amount = *filesize / real_package_size + 1;
+				generate_package_amount(filesize, real_package_size, package_amount, message);
 				*packages = (uint8_t*) calloc(*package_amount, sizeof(uint8_t));
 				if(*packages == NULL)
 				{
