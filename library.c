@@ -16,7 +16,7 @@
 #include <sys/stat.h>
 #include <inttypes.h>
 #include <openssl/md5.h>
-#include <dirent.h> 
+#include <dirent.h>
 #include "library.h"
 
 
@@ -37,6 +37,7 @@ void free_file_mutex()
  */
 int rand_range(int min_n, int max_n)
 {
+	srand ( time(NULL) );
 	return rand() % (max_n - min_n + 1) + min_n;
 }
 
@@ -112,38 +113,65 @@ void push(Queue* queue, char* message)
 	int move;
 	while(1)
 	{
-		pthread_mutex_lock(queue->access);
+		if(pthread_mutex_lock(queue->access) < 0)
+		{
+			ERR("pthread_mutex_lock");
+		}
 		if (queue->busy)
 		{
-			pthread_mutex_unlock(queue->access);
+			if(pthread_mutex_unlock(queue->access) <0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
 			sleep(1);
 		}
 		else
 			break;
 	}
 	queue->busy = 1;
-	pthread_mutex_unlock(queue->access);
-	
+	if(pthread_mutex_unlock(queue->access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
+
 	move = (queue->size) * CHUNKSIZE;
 	while(queue->size == queue->capacity)
 	{
-		pthread_mutex_lock(queue->access);
+		if(pthread_mutex_lock(queue->access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 		queue->busy = 0;
-		pthread_mutex_unlock(queue->access);
+		if(pthread_mutex_unlock(queue->access) <0 )
+		{
+			ERR("pthread_mutex_unlock");
+		}
 		fprintf(stderr, "Too many elements in queue waiting... \n");
 		sleep(2);
 	}
-	pthread_mutex_lock(queue->access);
+	if(pthread_mutex_lock(queue->access)< 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
 	queue->busy = 1;
-	pthread_mutex_unlock(queue->access);
+	if(pthread_mutex_unlock(queue->access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
 	for(i = move; i < CHUNKSIZE + move; i++)
 	{
 		queue->elements[i] = message[i - move];
 	}
 	queue->size = queue->size + 1;
-	pthread_mutex_lock(queue->access);
+	if(pthread_mutex_lock(queue->access) < 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
 	queue->busy = 0;
-	pthread_mutex_unlock(queue->access);
+	if(pthread_mutex_unlock(queue->access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
 }
 
 /*
@@ -155,22 +183,37 @@ int top(Queue* queue, char* message)
 	int i;
 	while(1)
 	{
-		pthread_mutex_lock(queue->access);
+		if(pthread_mutex_lock(queue->access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 		if (queue->busy)
 		{
-			pthread_mutex_unlock(queue->access);
+			if(pthread_mutex_unlock(queue->access) < 0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
 			sleep(1);
 		}
 		else
 			break;
 	}
 	queue->busy = 1;
-	pthread_mutex_unlock(queue->access);
+	if(pthread_mutex_unlock(queue->access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
 	if(queue->size == 0)
 	{
-		pthread_mutex_lock(queue->access);
+		if(pthread_mutex_lock(queue->access) < 0)
+		{
+			ERR("pthread_mutex_lock");
+		}
 		queue->busy = 0;
-		pthread_mutex_unlock(queue->access);
+		if(pthread_mutex_unlock(queue->access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 		fprintf(stderr, "Empty queue \n");
 		return -1;
 	}
@@ -188,9 +231,15 @@ int top(Queue* queue, char* message)
 		queue->elements[i] = messages[i];
 	}
 	queue->size = queue->size -1;
-	pthread_mutex_lock(queue->access);
+	if(pthread_mutex_lock(queue->access) < 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
 	queue->busy = 0;
-	pthread_mutex_unlock(queue->access);
+	if(pthread_mutex_unlock(queue->access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
 	return 0;
 }
 
@@ -561,6 +610,7 @@ int receive_message (int socket, struct sockaddr_in* receiver_addr, char* messag
 	/*
 	 * success
 	 */
+	fprintf(stderr, "Received message \n");
 	task = check_message_type(message);
 	switch(task)
 	{
@@ -719,7 +769,10 @@ uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
 
 uint32_t delete_status_from_list(char* file_name, char* searched_file_name)
 {
-	pthread_mutex_lock(file_access);
+	if(pthread_mutex_lock(file_access) < 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
 	int id, i;
 	char* tmp_percentage = NULL;
 	char filepath[FILENAME];
@@ -727,10 +780,10 @@ uint32_t delete_status_from_list(char* file_name, char* searched_file_name)
 	FILE* file = fopen(file_name, "r");
 	if(file == NULL)
 		return 1;/* should check the result */
-    char line[CHUNKSIZE];
+	char line[CHUNKSIZE];
 	char all[CHUNKSIZE * CHUNKSIZE];
 	int last = 0;
-    while (fgets(line, sizeof(line), file)) {
+	while (fgets(line, sizeof(line), file)) {
 		if(sscanf(line, "%d %s %s %s\n", &id, filepath, tmp_percentage, done) == EOF)
 		{
 			fprintf(stderr, "END OF SSCANF \n");
@@ -747,53 +800,69 @@ uint32_t delete_status_from_list(char* file_name, char* searched_file_name)
 			}
 			last = last + strlen(line);
 		}
-    }
-    if(fclose(file) == EOF)
+	}
+	if(fclose(file) == EOF)
 	{
 		fprintf(stderr, "Could not close file %s \n", file_name);
-				    pthread_mutex_unlock(file_access);
+		if( pthread_mutex_unlock(file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 		return 1;
 	}
-    file = fopen(file_name, "w");
-    if(file == NULL)
-    {
-		    pthread_mutex_unlock(file_access);
+	file = fopen(file_name, "w");
+	if(file == NULL)
+	{
+		if(pthread_mutex_unlock(file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 		return 1;/* should check the result */
 	}
 	fprintf(file, "%s", all);
 	if(fclose(file) == EOF)
 	{
 		fprintf(stderr, "Could not close file %s \n", file_name);
-		    pthread_mutex_unlock(file_access);
+		if(pthread_mutex_unlock(file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 
 		return 1;
 	}
-    pthread_mutex_unlock(file_access);
-    return 0;
+	if(pthread_mutex_unlock(file_access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
+	return 0;
 }
 
 /*
  * try to write record to file list, retrn 1 on errro, 0 on success
  */
-uint32_t write_status_to_list(int message_id, char* file_name, char* searched_file_name, int percentage, int package_numbers, int last_package)
+uint32_t write_status_to_list(int message_id, char* file_name, char* searched_file_name, int percentage, int package_numbers, int last_package, int task)
 {
-	pthread_mutex_lock(file_access);
+	if(pthread_mutex_lock(file_access) < 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
 	int id, i;
 	char* tmp_percentage = NULL;
 	char filepath[FILENAME];
 	int tmp_package_numbers = 0;
 	int tmp_last_package = 0;
+	int tmp_task_type = -1;
 	FILE* file = fopen(file_name, "r");
 	if(file == NULL)
 		return 1;/* should check the result */
-    char line[CHUNKSIZE];
+	char line[CHUNKSIZE];
 	char all[CHUNKSIZE * CHUNKSIZE];
 	int last = 0;
 	int exists = 0;
 	if(percentage > 100)
 		percentage = 100;
-    while (fgets(line, sizeof(line), file)) {
-		if(sscanf(line, "%d %s %s %d %d\n", &id, filepath, tmp_percentage, &tmp_package_numbers, &tmp_last_package) == EOF)
+	while (fgets(line, sizeof(line), file)) {
+		if(sscanf(line, "%d %s %s %d %d %d\n", &id, filepath, tmp_percentage, &tmp_package_numbers, &tmp_last_package, &tmp_task_type) == EOF)
 		{
 			fprintf(stderr, "END OF SSCANF \n");
 		}
@@ -802,7 +871,7 @@ uint32_t write_status_to_list(int message_id, char* file_name, char* searched_fi
 			if(strcmp(filepath, searched_file_name) == 0)
 			{
 				memset(line, 0, CHUNKSIZE * sizeof(char));
-				sprintf(line, "%d %s %d%% %d %d\n", message_id, searched_file_name, percentage, package_numbers, last_package);
+				sprintf(line, "%d %s %d%% %d %d %d\n", message_id, searched_file_name, percentage, package_numbers, last_package, task);
 				fprintf(stderr, "GOT LINE %s", line);
 				exists = 1;
 			}
@@ -812,38 +881,50 @@ uint32_t write_status_to_list(int message_id, char* file_name, char* searched_fi
 			}
 			last = last + strlen(line);
 		}
-    }
-    if(exists == 0)
-    {
-		sprintf(line, "%d %s %d%% %d %d\n", message_id, searched_file_name, percentage, package_numbers, last_package);
+	}
+	if(exists == 0)
+	{
+		sprintf(line, "%d %s %d%% %d %d %d\n", message_id, searched_file_name, percentage, package_numbers, last_package, task);
 		fprintf(stderr, "GOT NEW LINE %s", line);
 		for(i = 0; i < CHUNKSIZE; i++)
-			{
-				all[i + last] = line[i];
-			}
+		{
+			all[i + last] = line[i];
+		}
 	}
-    if(fclose(file) == EOF)
+	if(fclose(file) == EOF)
 	{
 		fprintf(stderr, "Could not close file %s \n", file_name);
-				    pthread_mutex_unlock(file_access);
+		if(pthread_mutex_unlock(file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 		return 1;
 	}
-    file = fopen(file_name, "w");
-    if(file == NULL)
-    {
-		    pthread_mutex_unlock(file_access);
+	file = fopen(file_name, "w");
+	if(file == NULL)
+	{
+		if(pthread_mutex_unlock(file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 		return 1;/* should check the result */
 	}
 	fprintf(file, "%s", all);
 	if(fclose(file) == EOF)
 	{
 		fprintf(stderr, "Could not close file %s \n", file_name);
-		    pthread_mutex_unlock(file_access);
+		if( pthread_mutex_unlock(file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 
 		return 1;
 	}
-    pthread_mutex_unlock(file_access);
-    return 0;
+	if(pthread_mutex_unlock(file_access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
+	return 0;
 }
 
 /*
@@ -852,7 +933,10 @@ uint32_t write_status_to_list(int message_id, char* file_name, char* searched_fi
 uint8_t create_list_file(char* file_name)
 {
 	int fd;
-	pthread_mutex_lock(file_access);
+	if(pthread_mutex_lock(file_access) < 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
 	while(1)
 	{
 		fd = open(file_name, O_RDWR | O_CREAT, S_IRWXU | S_IRGRP | S_IROTH);
@@ -863,7 +947,10 @@ uint8_t create_list_file(char* file_name)
 			else
 			{
 				fprintf(stderr, "Could not open file %s %s", file_name, strerror(errno));
-				    pthread_mutex_unlock(file_access);
+				if(pthread_mutex_unlock(file_access) < 0)
+				{
+					ERR("pthread_mutex_unlock");
+				}
 				return 1;
 			}
 		}
@@ -871,11 +958,17 @@ uint8_t create_list_file(char* file_name)
 		{
 			fprintf(stdout, "Success in creating list file\n");
 			close_file(&fd, file_name);
-			    pthread_mutex_unlock(file_access);
+			if(pthread_mutex_unlock(file_access) < 0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
 			return 0;
 		}
 	}
-	    pthread_mutex_unlock(file_access);
+	if(pthread_mutex_unlock(file_access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
 	return 0;
 }
 
@@ -886,13 +979,14 @@ uint8_t read_all_files_to_list(char* file_name)
 {
 	int i;
 	int size = 0;
-	DIR *d;
+	DIR *d = NULL;
 	int fd;
-	struct dirent *dir;
+	struct dirent *dir = NULL;
 	d = opendir(".");
 	char record[CHUNKSIZE];
-	char* file;
-	pthread_mutex_lock(file_access);
+	char* file = NULL;
+	if(pthread_mutex_lock(file_access) < 0)
+		ERR("pthread_mutex_lock");
 	while(1)
 	{
 		fd = open(file_name, O_RDWR);
@@ -903,7 +997,10 @@ uint8_t read_all_files_to_list(char* file_name)
 			else
 			{
 				fprintf(stderr, "Could not open file %s %s", file_name, strerror(errno));
-				    pthread_mutex_unlock(file_access);
+				if(pthread_mutex_unlock(file_access) < 0)
+				{
+					ERR("pthread_mutex_unlock");
+				}
 				return 1;
 			}
 		}
@@ -911,10 +1008,13 @@ uint8_t read_all_files_to_list(char* file_name)
 		{
 			fprintf(stdout, "Success in opening list file\n");
 			size = get_file_size (file_name);
-			if(size == -1) 
+			if(size == -1)
 			{
 				fprintf(stdout, "Could not read file size of list %s\n", file_name);
-				    pthread_mutex_unlock(file_access);
+				if(pthread_mutex_unlock(file_access) < 0)
+				{
+					ERR("pthread_mutex_unlock");
+				}
 				return 1;
 			}
 			if(size == 0)
@@ -924,46 +1024,62 @@ uint8_t read_all_files_to_list(char* file_name)
 				{
 					while ((dir = readdir(d)) != NULL)
 					{
-					  memset(record, 0, CHUNKSIZE);
-					  file = dir->d_name;
-					  if(strlen(file) == 0 || file[0] == '\0')
-						continue;
-					  record[0] = '0';
-					  record[1] = ' ';
-					  for(i = 0; i< strlen(file); i++)
-					  {
-						  record[2 + i] = file[i];
-					  }
-					  record[2+i] = ' ';
-					  record[2+i+1] = '1';
-					  record[2+i+2] = '0';
-					  record[2+i+3] = '0';
-					  record[2+i+4] = '%';
-					  record[2+i+5] = ' ';
-					  record[2+i+6] = '0';
-					  record[2+i+7] = ' ';
-					  record[2+i+8] = '0';
-					  record[2+i+9] = '\n';
-					  record[2+i+10] = '\0';
-					  if(bulk_write(fd, record, strlen(record)) != strlen(record))
-					  {
-						  fprintf(stderr, "Could not write all bytes \n");
-					  }
+						memset(record, 0, CHUNKSIZE);
+						file = dir->d_name;
+						if(strlen(file) == 0 || file[0] == '\0')
+							continue;
+						record[0] = '0';
+						record[1] = ' ';
+						for(i = 0; i< strlen(file); i++)
+						{
+							record[2 + i] = file[i];
+						}
+						record[2+i] = ' ';
+						record[2+i+1] = '1';
+						record[2+i+2] = '0';
+						record[2+i+3] = '0';
+						record[2+i+4] = '%';
+						record[2+i+5] = ' ';
+						record[2+i+6] = '0';
+						record[2+i+7] = ' ';
+						record[2+i+8] = '0';
+						record[2+i+9] = '\n';
+						record[2+i+10] = '\0';
+						if(bulk_write(fd, record, strlen(record)) != strlen(record))
+						{
+							fprintf(stderr, "Could not write all bytes \n");
+						}
 					}
 					if(closedir(d) < 0)
+					{
+						fprintf(stderr, "Could not close dir\n");
+						if(pthread_mutex_unlock(file_access) < 0)
 						{
-							fprintf(stderr, "Could not close dir\n");
-							    pthread_mutex_unlock(file_access);
-							return 1;
+							ERR("pthread_mutex_unlock");
 						}
+						free(file);
+						return 1;
+					}
 				}
 			}
 			close_file(&fd, file_name);
-			    pthread_mutex_unlock(file_access);
+			free(file);
+			free(dir);
+			free(d);
+			if(pthread_mutex_unlock(file_access)< 0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
 			return 0;
 		}
 	}
-	    pthread_mutex_unlock(file_access);
+	free(file);
+	free(dir);
+	free(d);
+	if(pthread_mutex_unlock(file_access) <0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
 	return 0;
 }
 

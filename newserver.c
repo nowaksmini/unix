@@ -211,7 +211,7 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 				fprintf(stderr, "Server pushed filename %s and id %u to successful upload register response message \n", filepath, id);
 				send_message(socket, client_addr, message, UPLOADRESPONSESTRING);
 				fprintf(stderr, "Waiting for upload response from client \n");
-				if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (i) * 100 / package_amount, package_amount, i) == 1)
+				if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (i) * 100 / package_amount, package_amount, i, (int)UPLOAD) == 1)
 				{
 					fprintf(stderr, "Could not update list \n");
 				}
@@ -232,7 +232,7 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 							package_number = get_file_size_from_message(message);
 							memset(package, 0, real_package_size * sizeof(char));
 							strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char));
-							if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (package_number+1) * 100 / package_amount, package_amount, package_number) == 1)
+							if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (package_number+1) * 100 / package_amount, package_amount, package_number, (int)UPLOAD) == 1)
 							{
 								fprintf(stderr, "Could not update list \n");
 							}
@@ -409,7 +409,7 @@ void send_file_packages(char* real_file_name, task_type task, char* task_message
 			send_message(socket, client_addr, message, task_message);
 			if(package_amount != 0)
 			{
-				if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (i) * 100 / package_amount, package_amount, i) == 1)
+				if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (i) * 100 / package_amount, package_amount, i, (int)task) == 1)
 			{
 				fprintf(stderr, "Could not update list \n");
 			}
@@ -423,7 +423,7 @@ void send_file_packages(char* real_file_name, task_type task, char* task_message
 		fprintf(stderr, "Sending md5 sum for task id %d \n", tmp_id);
 		strcpy(message + 3*sizeof(uint32_t)/sizeof(char), (char*)md5_sum);
 		send_message(socket, client_addr, message, task_message);
-		if(write_status_to_list(tmp_id, LISTFILE, real_file_name, 100, package_amount, package_amount) == 1)
+		if(write_status_to_list(tmp_id, LISTFILE, real_file_name, 100, package_amount, package_amount, (int)task) == 1)
 			{
 				fprintf(stderr, "Could not update list \n");
 			}

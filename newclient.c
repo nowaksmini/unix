@@ -21,7 +21,7 @@
 
 
 void init(pthread_t *thread, thread_arg *targ, int *socket, struct sockaddr_in* server_addr, task_type task,
-		char filepath [FILENAME]);
+		char filepath [FILENAME], int package_amount, int package_number);
 
 
 /*
@@ -159,7 +159,7 @@ void input_listening_work(int socket, struct sockaddr_in server_addr)
 		/*
 		 * run new thread for communication and downloading
 		 */
-		init(&thread, &targ, &socket, &server_addr, task, filepath);
+		init(&thread, &targ, &socket, &server_addr, task, filepath, 0 , 0);
 	}
 }
 
@@ -383,6 +383,10 @@ void* wait_for_packages(char* message_type, task_type expected_type, char *messa
 				package_number = get_file_size_from_message(message);
 				memset(package, 0, real_package_size * sizeof(char));
 				strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char));
+				if(write_status_to_list(tmp_id, CLIENTLISTFILE, real_file_name, package_number * 100 / package_amount, package_amount, package_number, (int)expected_type) == 1)
+				{
+					fprintf(stderr, "Could not update list \n");
+				}
 				if(expected_type == LIST)
 				{
 					if(package_number != package_amount)
@@ -741,6 +745,10 @@ void *upload_thread_function(void *arg)
 											strcpy(message + 3*sizeof(uint32_t)/sizeof(char), package);
 											fprintf(stderr, "Sending data package number %d for task id %d : %s \n", i,tmp_id, package);
 											send_message(clientfd, server_addr, message, UPLOADSTRING);
+											if(write_status_to_list(tmp_id, CLIENTLISTFILE, real_file_name, i * 100 / package_amount, package_amount, i, (int)UPLOAD) == 1)
+											{
+												fprintf(stderr, "Could not update list \n");
+											}
 											sleep(1);
 										}
 										memset(message, 0, CHUNKSIZE * sizeof(char));
@@ -750,6 +758,10 @@ void *upload_thread_function(void *arg)
 										strcpy(message + 3*sizeof(uint32_t)/sizeof(char), (char*)md5_sum);
 										fprintf(stderr, "Sending md5 sum for task id %d \n", tmp_id);
 										send_message(clientfd, server_addr, message, UPLOADSTRING);
+										if(write_status_to_list(tmp_id, CLIENTLISTFILE, real_file_name,  100 , package_amount, package_amount, (int)UPLOAD) == 1)
+											{
+												fprintf(stderr, "Could not update list \n");
+											}
 										sleep(1);
 										break;
 									}
@@ -854,7 +866,7 @@ void *list_thread_function(void *arg)
  * create thread for defined purpose
  */
 void init(pthread_t *thread, thread_arg *targ, int *socket, struct sockaddr_in* server_addr, task_type task,
-		char filepath [FILENAME])
+		char filepath [FILENAME], int package_amount, int package_number)
 {
 	int i;
 	if(task == NONE)
@@ -882,6 +894,9 @@ void init(pthread_t *thread, thread_arg *targ, int *socket, struct sockaddr_in* 
 		targ[0].socket = socket;
 		targ[0].server_addr = server_addr;
 		targ[0].filename = filepath;
+		targ[0].task = (int)task;
+		targ[0].package_amount = package_amount;
+		targ[0].package_number = package_number;
 		switch(task)
 		{
 		case DOWNLOAD:
@@ -1037,6 +1052,15 @@ int main(int argc, char **argv)
 		usage(argv[0]);
 	queue = createQueue(QUEUECAPACITY);
 	inicialize_file_mutex();
+	if(create_list_file(CLIENTLISTFILE) == 1)
+		fprintf(stderr, "Problem with creating list file \n");
+		else
+		{
+			if(read_all_files_to_list(CLIENTLISTFILE) == 1)
+			{
+				fprintf(stderr, "Problem with writing record to list \n");
+			}
+		}
 	fprintf(stdout,"%s", INSTRUCTION);
 
 	sethandler(SIG_IGN, SIGPIPE);
@@ -1068,8 +1092,11 @@ int main(int argc, char **argv)
 	/*
 	 * Initialize 2 main threads for listening from input and server
 	 */
-	init(thread, targ, &socket, &server_addr, NONE, NULL);
+	init(thread, targ, &socket, &server_addr, NONE, NULL, 0 , 0);
 
+	/* inicialize threads from list*/
+	
+	
 	do_work(socket);
 	free_queue();
 	free_file_mutex();

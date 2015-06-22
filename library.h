@@ -26,6 +26,7 @@
 		     exit(EXIT_FAILURE))
 #define MD5LENGTH 200
 #define LISTFILE "list_file"
+#define CLIENTLISTFILE "client_list_file"
 
 #define DOWNLOADSTRING "download"
 #define UPLOADSTRING "upload"
@@ -78,6 +79,9 @@ typedef struct
 	int* socket;
 	struct sockaddr_in *server_addr;
 	char* filename;
+	int task;
+	int package_amount;
+	int package_number;
 } thread_arg;
 
 volatile sig_atomic_t work;
@@ -132,7 +136,7 @@ char * read_whole_file (const char * file_name);
 
 uint32_t delete_status_from_list(char* file_name, char* searched_file_name);
 
-uint32_t write_status_to_list(int message_id, char* file_name, char* searched_file_name,  int percentage, int package_numbers, int last_package);
+uint32_t write_status_to_list(int message_id, char* file_name, char* searched_file_name,  int percentage, int package_numbers, int last_package, int task);
 
 void* server_send_response_function(void * arg, char * type_name, task_type expected_type, void (*function) (task_type task, char*, int, struct sockaddr_in));
 
