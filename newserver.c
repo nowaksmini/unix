@@ -380,6 +380,7 @@ void read_file(task_type task, char* messagein, int socket, struct sockaddr_in c
 	char* response_error;
 	char* response_success;
 	package = malloc(real_package_size);
+	int should_send_data = 0;
 	if(package == NULL)
 	{
 		fprintf(stderr, "Problem with allocation memory for package \n");
@@ -425,16 +426,16 @@ void read_file(task_type task, char* messagein, int socket, struct sockaddr_in c
 	}
 	fprintf(stderr, "Real file name : %s \n", real_file_name);
 	fprintf(stderr, "Real file name size %zu \n", strlen(real_file_name));
-
-	if(generate_download_response_message(response_task, response_error, response_success, real_file_name, message, 
-		filepath, message_id, &file_contents, md5_sum, &tmp_id, &size) == 0)
-	{
-		if(task == DOWNLOAD)
+	should_send_data = generate_download_response_message(response_task, response_error, response_success, real_file_name, message, 
+		filepath, message_id, &file_contents, md5_sum, &tmp_id, &size);
+	if(task == DOWNLOAD)
 			task_message = DOWNLOADRESPONSESTRING;
 		else
 			task_message = LISTRESPONSESTRING;
 		send_message(socket, client_addr, message, task_message);
 		sleep(1);
+	if(should_send_data == 0)
+	{
 		/*
 		 * clear message
 		 */
@@ -448,8 +449,8 @@ void read_file(task_type task, char* messagein, int socket, struct sockaddr_in c
 			task_message = LISTSTRING;
 		send_file_packages(task, task_message, message, tmp_id, file_contents, package, md5_sum,
 				socket, client_addr);
+		free (file_contents);
 	}
-	free (file_contents);
 	free (package);
 	free(real_file_name);
 	return;

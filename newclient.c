@@ -566,10 +566,11 @@ void *common_download_function(void *arg, char* message_type, char* task_string,
 		 }
 		should_download = wait_for_download_response(expected_repsponse_type, response_message_type, error_file_path, message, &task, &id, filepath,
 				oldFilePath, communicate, &real_file_name, &package_amount, &packages);
-
-		fprintf(stderr, "Waiting for datagrams with file content\n");
-
-		wait_for_packages(message_type, expected_type, message, error_file_path, id, package_amount, should_download, real_file_name, packages);
+	    if(should_download == 0)
+	    {
+			fprintf(stderr, "Waiting for datagrams with file content\n");
+			wait_for_packages(message_type, expected_type, message, error_file_path, id, package_amount, should_download, real_file_name, packages);
+		}
 	}
 
 	free(message);
