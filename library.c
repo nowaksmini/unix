@@ -402,26 +402,23 @@ void put_id_to_message(char * buf, uint32_t id_message)
 	}
 }
 
-/* TO DO */
-
-unsigned get_file_size (const char * file_name)
+/* return file size if it is possible else return -1 */
+int get_file_size (const char * file_name)
 {
 	struct stat sb;
 	if (stat (file_name, & sb) != 0) {
-		fprintf (stderr, "'stat' failed for '%s': %s.\n", file_name, strerror (errno));
+		fprintf (stderr, "'Stat' failed for '%s': %s.\n", file_name, strerror (errno));
 		return -1;
 	}
 	return sb.st_size;
 }
-
-/* TO DO */
 
 /*
  *This routine reads the entire file into memory.
  */
 char * read_whole_file (const char * file_name)
 {
-	unsigned s;
+	int s;
 	char * contents;
 	FILE * f;
 	size_t bytes_read;
@@ -676,7 +673,7 @@ uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
 	return 0;
 }
 
-/* return 0 if file exists and was opened */
+/* return 0 if file exists */
 uint8_t open_file(char* real_file_name, int *fd)
 {
 	while(1)

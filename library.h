@@ -25,6 +25,7 @@
 #define HERR(source) (fprintf(stderr,"%s(%d) at %s:%d\n",source,h_errno,__FILE__,__LINE__),\
 		     exit(EXIT_FAILURE))
 #define MD5LENGTH 200
+#define LISTFILE "list_file"
 
 #define DOWNLOADSTRING "download"
 #define UPLOADSTRING "upload"
@@ -52,7 +53,7 @@
 #define UPLOADRESPONSEERROR "Registered request to upload file to server abandoned"
 
 
-#define INSTRUCTION "\nINSTRUCTUIION\nOPTIONS\ndownload file_name\nupload file_name\nremove file_name\n\n"
+#define INSTRUCTION "\nINSTRUCTUIION\nOPTIONS\ndownload file_name\nupload file_name\nremove file_name\nlist\n\n"
 #define RECEIVEDINTHREAD "Received in thread"
 
 #define CLIENTREQUESTS "Client requests registration"
@@ -119,7 +120,7 @@ uint32_t get_file_size_from_message(char*message);
 
 void put_id_to_message(char * buf, uint32_t id_message);
 
-unsigned get_file_size (const char * file_name);
+int get_file_size (const char * file_name);
 
 char * read_whole_file (const char * file_name);
 
