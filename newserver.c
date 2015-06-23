@@ -44,6 +44,43 @@ void generate_failed_upload_response(char* message, int message_id, char* filepa
 	fprintf(stderr, "Server pushed filename %s and id %u to unsuccessful upload register response message \n", filepath, message_id);
 	send_message(socket, client_addr, message, UPLOADRESPONSESTRING);
 }
+
+/*
+ * check sum for upload task
+ */
+void check_md5_sum_for_upload(char* file_contents, char* real_file_name, unsigned char* md5_sum, char* package)
+{
+	int i;
+	uint8_t correct_sum = 0;
+	fprintf(stderr, "Checking md5 sums \n");
+	file_contents = read_whole_file (real_file_name);
+	if(file_contents == NULL)
+	{
+		fprintf(stderr, "Problem with generating whole file content %s \n", real_file_name);
+		return;
+	}
+	memset(md5_sum, 0, MD5LENGTH);
+	compute_md5(file_contents, md5_sum);
+	fprintf(stderr, "Got md5 sum %s for file %s \n", md5_sum, real_file_name);
+	for(i = 0; i< MD5LENGTH; i++)
+	{
+		if(md5_sum[i] == '\0')
+		{
+			correct_sum = 1;
+			break;
+		}
+		if(((int)md5_sum[i] - (int)package[i] ) % 256 != 0)
+		{
+			correct_sum = 0;
+			break;
+		}
+	}
+	if(correct_sum == 1 || i == MD5LENGTH)
+		fprintf(stdout, "Md5 sums correct for file %s \n", real_file_name);
+	else
+		fprintf(stdout, "Wrong md5 sum %s for field %d %d %d \n", real_file_name, i, (int)md5_sum[i], (int)package[i]);
+}
+
 /*
  * message send to client to inform about ability to delete file
  * generating new task id an removing file if can
@@ -132,6 +169,106 @@ void generate_delete_response_message(task_type task, char* message, int socket,
 	free(real_file_name);
 }
 
+uint8_t write_data_to_uploaded_file(char* real_file_name, int package_number, uint8_t* packages, char* package, char* message)
+{
+	int fd;
+	fprintf(stderr, "Write data to update file \n");
+	if(pthread_mutex_lock(common_file_access) < 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
+	if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDWR))) == -1)
+	{
+		fprintf(stderr, "Could not open file %s %s \n", real_file_name, strerror(errno));
+		return 1;
+	}
+	fprintf(stderr, "Package number %d \n", package_number);
+	if(package_number == 0 || packages[package_number-1] == 1)
+	{
+		packages[package_number] = 1;
+		if(lseek(fd, 0, SEEK_END) < 0)
+		{
+			fprintf(stderr, "Could not write.\n");
+			if(pthread_mutex_unlock(common_file_access) < 0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
+			close_file(&fd, real_file_name);
+			return 1;
+		}
+		if(pthread_mutex_unlock(common_file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
+		bulk_write(fd, package, strlen(package));
+		fprintf(stderr, "Package was written to file %s \n", real_file_name);
+		close_file(&fd, real_file_name);
+	}
+	else
+	{
+		if(pthread_mutex_unlock(common_file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
+		fprintf(stderr, "Pushing message back to queue \n");
+		push(queue, message);
+	}
+	return 0;
+}
+
+void wait_for_upload_packages(int tmp_id, char* message, char* error_file_path, task_type task, char* package, int package_amount,
+								char* file_contents, unsigned char* md5_sum, char* real_file_name, uint8_t* packages)
+{
+	int package_number = 0;
+	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
+	int work_counter = 0;
+	while(work)
+	{
+		if(work_counter == MAXTRY)
+		{
+			fprintf(stderr, "Waiting for upload packages took too long, stopping\n");
+			break;
+		}
+		if(check_top_of_queue("UPLOADRESPONSE", &task, message, UPLOADROSPONSE, error_file_path) == 1)
+		{
+			work_counter++;
+			continue;
+		}
+		else
+		{
+			if(tmp_id == get_id_from_message(message))
+			{
+				fprintf(stderr, "Id of message and thread are the same \n");
+				fprintf(stderr, "Got data for update \n");
+				package_number = get_file_size_from_message(message);
+				memset(package, 0, real_package_size * sizeof(char));
+				strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char));
+				if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (package_number+1) * 100 / package_amount, 
+					package_amount, package_number, (int)UPLOAD) == 1)
+				{
+					fprintf(stderr, "Could not update list \n");
+				}
+				if(package_number == package_amount)
+				{
+					check_md5_sum_for_upload(file_contents, real_file_name, md5_sum, package);
+					break;
+				}
+				else
+				{
+					if(write_data_to_uploaded_file(real_file_name, package_number, packages, package, message) == 1)
+						break;
+				}
+			}
+			else
+			{
+				fprintf(stderr, "Pushing message back to queue \n");
+				work_counter++;
+				push(queue, message);
+				sleep(1);
+			}
+		}
+	}
+}
 
 /*
  * message send to client to inform about receiving new file size, md5
@@ -139,9 +276,7 @@ void generate_delete_response_message(task_type task, char* message, int socket,
  */
 void generate_upload_response_message(task_type task, char* message, int socket, struct sockaddr_in client_addr)
 {
-	int fd; /*file descriptor */
 	int i;
-	uint8_t correct_sum = 0;
 	char filepath[FILENAME];
 	char * real_file_name = NULL;
 	uint8_t* packages = NULL;
@@ -151,7 +286,6 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 	int message_id = 0;
 	int tmp_id;
 	int package_amount;
-	int package_number = 0;
 	char * file_contents = NULL;
 	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
 	char *package = NULL;
@@ -223,110 +357,8 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 				{
 					fprintf(stderr, "Could not update list \n");
 				}
-				while(work)
-				{
-					sleep(1);
-					if(check_top_of_queue("UPLOADRESPONSE", &task, message, UPLOADROSPONSE, error_file_path) == 1)
-						continue;
-					else
-					{
-						if(tmp_id == get_id_from_message(message))
-						{
-							/*file exists or some problems occurred earlier
-					   need to take from queue all messages for this task*/
-
-							fprintf(stderr, "Id of message and thread are the same \n");
-							fprintf(stderr, "Got data for update \n");
-							package_number = get_file_size_from_message(message);
-							memset(package, 0, real_package_size * sizeof(char));
-							strcpy(package, message + 3 * sizeof(uint32_t)/sizeof(char));
-							if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (package_number+1) * 100 / package_amount, package_amount, package_number, (int)UPLOAD) == 1)
-							{
-								fprintf(stderr, "Could not update list \n");
-							}
-							if(package_number == package_amount)
-							{
-								fprintf(stderr, "Checking md5 sums \n");
-								file_contents = read_whole_file (real_file_name);
-								if(file_contents == NULL)
-								{
-									fprintf(stderr, "Problem with generating whole file content %s \n", real_file_name);
-									break;
-								}
-								memset(md5_sum, 0, MD5LENGTH);
-								compute_md5(file_contents, md5_sum);
-								fprintf(stderr, "Got md5 sum %s for file %s \n", md5_sum, real_file_name);
-								for(i = 0; i< MD5LENGTH; i++)
-								{
-									if(md5_sum[i] == '\0')
-									{
-										correct_sum = 1;
-										break;
-									}
-									if(((int)md5_sum[i] - (int)package[i] ) % 256 != 0)
-									{
-										correct_sum = 0;
-										break;
-									}
-								}
-								if(correct_sum == 1 || i == MD5LENGTH)
-									fprintf(stdout, "Md5 sums correct for file %s \n", real_file_name);
-								else
-									fprintf(stdout, "Wrong md5 sum %s for field %d %d %d \n", real_file_name, i, (int)md5_sum[i], (int)package[i]);
-								break;
-							}
-							else
-							{
-								fprintf(stderr, "Write data to update file \n");
-								if(pthread_mutex_lock(common_file_access) < 0)
-								{
-									ERR("pthread_mutex_lock");
-								}
-								if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDWR))) == -1)
-								{
-									fprintf(stderr, "Could not open file %s %s \n", real_file_name, strerror(errno));
-									break;
-								}
-								fprintf(stderr, "Package number %d \n", package_number);
-								if(package_number == 0 || packages[package_number-1] == 1)
-								{
-									packages[package_number] = 1;
-									if(lseek(fd, 0, SEEK_END) < 0)
-									{
-										fprintf(stderr, "Could not write.\n");
-										if(pthread_mutex_unlock(common_file_access) < 0)
-										{
-											ERR("pthread_mutex_unlock");
-										}
-										close_file(&fd, real_file_name);
-										continue;
-									}
-									if(pthread_mutex_unlock(common_file_access) < 0)
-									{
-										ERR("pthread_mutex_unlock");
-									}
-									bulk_write(fd, package, strlen(package));
-									fprintf(stderr, "Package was written to file %s \n", real_file_name);
-									close_file(&fd, real_file_name);
-								}
-								else
-								{
-									if(pthread_mutex_unlock(common_file_access) < 0)
-									{
-										ERR("pthread_mutex_unlock");
-									}
-									fprintf(stderr, "Pushing message back to queue \n");
-									push(queue, message);
-								}
-							}
-						}
-						else
-						{
-							fprintf(stderr, "Pushing message back to queue \n");
-							push(queue, message);
-						}
-					}
-				}
+				wait_for_upload_packages(tmp_id, message, error_file_path, task, package, package_amount,
+								file_contents, md5_sum, real_file_name, packages);
 			}
 		}
 	}

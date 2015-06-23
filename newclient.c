@@ -265,10 +265,17 @@ uint8_t wait_for_download_response(task_type expected_task, char* message_type, 
 	int filesize = 0;
 	int tmp_id = -1;
 	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
+	int work_counter = 0;
 	while(work)
 	{
+		if(work_counter == MAXTRY)
+		{
+			fprintf(stderr, "To long waiting to receive %s \n", message_type);
+			return 1;
+		}
 		if(check_top_of_queue(message_type, type, message, expected_task, error_file_path) == 1)
 		{
+			work_counter++;
 			continue;
 		}
 		/* waiting for confirmation or rejection of downloading file*/
@@ -281,6 +288,7 @@ uint8_t wait_for_download_response(task_type expected_task, char* message_type, 
 				if(file_path[i] != old_file_path[i])
 				{
 					fprintf(stderr, "Not this message, wrong filepath \n");
+					work_counter++;
 					push(queue, message);
 					break;
 				}
@@ -356,6 +364,7 @@ void* wait_for_packages(char* message_type, task_type expected_type, char *messa
 	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
 	package = malloc(real_package_size);
 	int fd;
+	int work_counter = 0;
 	if(package == NULL)
 	{
 		fprintf(stderr, "Problem with allocating memory for package \n");
@@ -365,10 +374,16 @@ void* wait_for_packages(char* message_type, task_type expected_type, char *messa
 
 	while(work)
 	{
+		if(work_counter == MAXTRY)
+		{
+			fprintf(stderr, "To long waiting to receive %s \n", message_type);
+			return NULL;
+		}
 		fprintf(stderr, "Waiting to receive %s \n", message_type);
 		if(check_top_of_queue(message_type, &task, message, expected_type, error_file_path) == 1)
 		{
 			continue;
+			work_counter++;
 		}
 		else
 		{
@@ -484,6 +499,7 @@ void* wait_for_packages(char* message_type, task_type expected_type, char *messa
 			{
 				fprintf(stderr, "Pushing message back to queue \n");
 				push(queue, message);
+				work_counter++;
 			}
 		}
 	}
@@ -501,10 +517,19 @@ void wait_for_delete_response(task_type* task, char* error_file_path, char* old_
 {
 	int tmpid = -1;
 	int i;
+	int work_counter = 0;
 	while(work)
 	{
+		if(work_counter == MAXTRY)
+		{
+			fprintf(stderr, "To long waiting to receive %s \n", "DELETERESPOSNSE");
+			break;
+		}
 		if(check_top_of_queue("DELETERESPONSE", task, message, DELETERESPONSE, error_file_path) == 1)
+		{
+			work_counter++;
 			continue;
+		}
 		/* waiting for confirmation or rejection of downloading file*/
 		if(*id == -1)
 		{
@@ -539,6 +564,10 @@ void wait_for_delete_response(task_type* task, char* error_file_path, char* old_
 					fprintf(stdout, "Got id %d \n", *id);
 					break;
 				}
+			}
+			else
+			{
+				work_counter++;
 			}
 		}
 	}
@@ -646,6 +675,7 @@ void *upload_thread_function(void *arg)
 	char * file_contents = NULL;
 	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
 	char *package = NULL;
+	int work_counter = 0;
 	package = malloc(real_package_size);
 
 	if(package == NULL)
@@ -687,8 +717,16 @@ void *upload_thread_function(void *arg)
 						 */
 						while(work)
 						{
+							if(work_counter == MAXTRY)
+							{
+								fprintf(stderr, "Upload waited to long \n");
+								break;
+							}
 							if(check_top_of_queue("UPLOADRESPONSE", &task, message, UPLOADROSPONSE, error_file_path) == 1)
+							{
+								work_counter++;
 								continue;
+							}
 							/* waiting for confirmation or rejection of uploading file*/
 							else if(id == -1)
 							{
@@ -784,6 +822,10 @@ void *upload_thread_function(void *arg)
 										break;
 									}
 								}
+								else
+								{
+									work_counter++;
+								}
 							}
 						}
 					}
@@ -819,6 +861,7 @@ void *delete_thread_function(void *arg)
 	char* error_file_path = NULL;
 	error_file_path = malloc(FILENAME);
 	task_type task;
+	int work_counter = 0;
 	memcpy(&targ, arg, sizeof(targ));
 	message = calloc(CHUNKSIZE, sizeof(char));
 	if(message != NULL && error_file_path != NULL)
@@ -844,8 +887,16 @@ void *delete_thread_function(void *arg)
 
 		while(work && wait_for_delete_raport)
 		{
+			if(work_counter == MAXTRY)
+			{
+					fprintf(stderr, "Upload waited to long \n");
+					break;
+			}
 			if(check_top_of_queue("DELETE", &task, message, DELETE, error_file_path) == 1)
+			{
+				work_counter ++;
 				continue;
+			}
 			else
 			{
 				tmpid = get_id_from_message(message);
@@ -860,6 +911,7 @@ void *delete_thread_function(void *arg)
 				else
 				{
 					push(queue, message);
+					work_counter++;
 				}
 			}
 		}
