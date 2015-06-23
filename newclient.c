@@ -435,9 +435,17 @@ void* wait_for_packages(char* message_type, task_type expected_type, char *messa
 					else
 					{
 						fprintf(stderr, "Write data to update file \n");
+						if(pthread_mutex_lock(common_file_access) < 0)
+						{
+							ERR("pthread_mutex_lock");
+						}
 						if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDWR))) == -1)
 						{
 							fprintf(stderr, "Could not open file %s %s \n", real_file_name, strerror(errno));
+							if(pthread_mutex_unlock(common_file_access) < 0)
+							{
+								ERR("pthread_mutex_unlock");
+							}
 							break;
 						}
 						fprintf(stderr, "Package number %d \n", package_number);
@@ -447,10 +455,18 @@ void* wait_for_packages(char* message_type, task_type expected_type, char *messa
 							if(lseek(fd, 0, SEEK_END) < 0)
 							{
 								fprintf(stderr, "Could not write.\n");
+								if(pthread_mutex_unlock(common_file_access) < 0)
+								{
+									ERR("pthread_mutex_unlock");
+								}
 								close_file(&fd, real_file_name);
 								continue;
 							}
 							/* strlen(package) */
+							if(pthread_mutex_unlock(common_file_access) < 0)
+							{
+								ERR("pthread_mutex_unlock");
+							}
 							bulk_write(fd, package, real_package_size );
 							fprintf(stderr, "Package was written to file %s \n", real_file_name);
 							close_file(&fd, real_file_name);
