@@ -576,6 +576,7 @@ void *common_download_function(void *arg, char* message_type, char* task_string,
 			clientfd = *targ.socket;
 			server_addr = *targ.server_addr;
 			filepath = targ.filename;
+			fprintf(stderr, "In download filename %s\n", filepath);
 			download_request_work(task_string, expected_type, clientfd, server_addr, filepath);
 		}
 		for(i = 0; i< FILENAME; i++)
@@ -673,6 +674,7 @@ void *upload_thread_function(void *arg)
 					clientfd = *targ.socket;
 					server_addr = *targ.server_addr;
 					filepath = targ.filename;
+					fprintf(stderr, "In upload filepath %s \n", filepath);
 					if(upload_request_work(message, clientfd, server_addr, filepath) == 0)
 					{
 						for(i = 0; i< FILENAME; i++)
@@ -909,7 +911,8 @@ void init(pthread_t *thread, thread_arg *targ, int *socket, struct sockaddr_in* 
 	{
 		targ[0].socket = socket;
 		targ[0].server_addr = server_addr;
-		targ[0].filename = filepath;
+		strncpy(targ[0].filename, filepath, FILENAME);
+		fprintf(stderr, "In init filepath %s\n", filepath);
 		targ[0].task = (int)task;
 		targ[0].package_amount = package_amount;
 		targ[0].package_number = package_number;
@@ -1041,6 +1044,59 @@ void do_work(int socket)
 	fprintf(stderr,"Client has terminated.\n");
 }
 
+void create_tasks_from_list_files(char* file_name, int socket, struct sockaddr_in server_addr)
+{
+	if(pthread_mutex_lock(file_access) < 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
+	pthread_t thread;
+	thread_arg targ;
+	int id;
+	char tmp_percentage[4];
+	char filepath[FILENAME];
+	int tmp_package_numbers = 0;
+	int tmp_last_package = 0;
+	int tmp_task_type = -1;
+	FILE* file = fopen(file_name, "r");
+	if(file == NULL)
+	{
+		if(pthread_mutex_unlock(file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
+		return;
+	}
+	char line[CHUNKSIZE];
+	while (fgets(line, sizeof(line), file))
+	{
+		if(sscanf(line, "%d %s %s %d %d %d\n", &id, filepath, tmp_percentage, &tmp_package_numbers, &tmp_last_package, &tmp_task_type) == EOF)
+		{
+			fprintf(stderr, "END OF SSCANF \n");
+			break;
+		}
+		else
+		{
+			if(id!= 0 && tmp_package_numbers != 0  && tmp_package_numbers != tmp_last_package)
+			{
+				fprintf(stderr, "Creating new task %s \n", filepath);
+				init(&thread, &targ, &socket, &server_addr, tmp_task_type, filepath, tmp_package_numbers , tmp_last_package);
+			}
+		}
+	}
+	if(fclose(file) == EOF)
+	{
+		fprintf(stderr, "Could not close file %s \n", file_name);
+		if(pthread_mutex_unlock(file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
+	}
+	if(pthread_mutex_unlock(file_access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
+}
 
 int main(int argc, char **argv)
 {
@@ -1112,9 +1168,10 @@ int main(int argc, char **argv)
 	init(thread, targ, &socket, &server_addr, NONE, NULL, 0 , 0);
 
 	/* inicialize threads from list*/
-	
-	
+	create_tasks_from_list_files(CLIENTLISTFILE, socket, server_addr);
+
 	do_work(socket);
+	
 	free_queue();
 	free_common_file_mutex();
 	free_file_mutex();

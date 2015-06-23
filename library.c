@@ -871,7 +871,13 @@ uint32_t delete_status_from_list(char* file_name, char* searched_file_name)
 	char* done = NULL;
 	FILE* file = fopen(file_name, "r");
 	if(file == NULL)
+	{
+		if( pthread_mutex_unlock(file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 		return 1;/* should check the result */
+	}
 	char line[CHUNKSIZE];
 	char all[CHUNKSIZE * CHUNKSIZE];
 	int last = 0;
@@ -1280,4 +1286,49 @@ uint8_t check_top_of_queue(char* message_type, task_type* task, char* message, t
 		return 1;
 	}
 	return 0;
+}
+
+int get_max_id_from_list(char* file_name)
+{
+	if(pthread_mutex_lock(file_access) < 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
+	int id, max = 0;
+	char* tmp_percentage = NULL;
+	char filepath[FILENAME];
+	int tmp_package_numbers = 0;
+	int tmp_last_package = 0;
+	int tmp_task_type = -1;
+	FILE* file = fopen(file_name, "r");
+	if(file == NULL)
+		return 0;/* should check the result */
+	char line[CHUNKSIZE];
+	while (fgets(line, sizeof(line), file))
+	{
+		if(sscanf(line, "%d %s %s %d %d %d\n", &id, filepath, tmp_percentage, &tmp_package_numbers, &tmp_last_package, &tmp_task_type) == EOF)
+		{
+			fprintf(stderr, "END OF SSCANF \n");
+			break;
+		}
+		else
+		{
+			if(max < id)
+				max = id;
+		}
+	}
+	if(fclose(file) == EOF)
+	{
+		fprintf(stderr, "Could not close file %s \n", file_name);
+		if(pthread_mutex_unlock(file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
+		return max;
+	}
+	if(pthread_mutex_unlock(file_access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
+	return max;
 }

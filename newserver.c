@@ -767,7 +767,7 @@ int main(int argc, char **argv)
 		}
 	}
 	fprintf(stderr, "Created queue \n");
-
+    id =  get_max_id_from_list(LISTFILE);
 	do_work(socket);
 	free_queue();
 	free_file_mutex();

@@ -78,7 +78,7 @@ typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNLO
 	{
 		int* socket;
 		struct sockaddr_in *server_addr;
-		char* filename;
+		char filename[FILENAME];
 		int task;
 		int package_amount;
 		int package_number;
@@ -164,6 +164,8 @@ typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNLO
 	uint8_t open_file(char* real_file_name, int *fd);
 
 	uint8_t check_top_of_queue(char* message_type, task_type* task, char* message, task_type expected_task, char* error_file_path);
+
+	int get_max_id_from_list(char* file_name);
 
 #endif
 
