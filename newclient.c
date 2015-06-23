@@ -651,33 +651,165 @@ void *download_thread_function(void *arg)
 }
 
 /*
+ * if finished sending upload packages or error occured return 1 else return 0
+ */
+uint8_t send_upload_datagrams(int first_empty_sign, char* file_contents, int filesize, int real_package_size, int package_amount, unsigned char* md5_sum,
+							int tmp_id, char* package, char* real_file_name, char* message, char* filepath, int clientfd, struct sockaddr_in server_addr)
+{
+	int i, j;
+	for(i = 0; i < first_empty_sign; i++)
+	{
+		real_file_name[i] = filepath[i];
+	}
+	fprintf(stderr, "Real file name size %d after malloc \n", first_empty_sign);
+	file_contents = read_whole_file (real_file_name);
+	if(file_contents == NULL)
+	{
+		fprintf(stderr, "Could not read file \n");
+		return 1;
+	}
+	generate_package_amount(&filesize, real_package_size, &package_amount, message);
+	compute_md5(file_contents, md5_sum);
+	for(i = 0; i < package_amount; i++)
+	{
+		memset(package, 0, real_package_size * sizeof(char));
+		for(j = 0; j < real_package_size; j++)
+		{
+			package[j] = file_contents[i* real_package_size + j];
+		}
+		memset(message, 0, CHUNKSIZE * sizeof(char));
+		save_massage_type_to_message(UPLOADROSPONSE, message);
+		put_id_to_message(message,tmp_id);
+		put_size_to_message((uint32_t)i, message);
+		strcpy(message + 3*sizeof(uint32_t)/sizeof(char), package);
+		fprintf(stderr, "Sending data package number %d for task id %d : %s \n", i,tmp_id, package);
+		send_message(clientfd, server_addr, message, UPLOADSTRING);
+		if(write_status_to_list(tmp_id, CLIENTLISTFILE, real_file_name, i * 100 / package_amount, package_amount, i, (int)UPLOAD) == 1)
+		{
+			fprintf(stderr, "Could not update list \n");
+		}
+		sleep(1);
+	}
+	memset(message, 0, CHUNKSIZE * sizeof(char));
+	save_massage_type_to_message(UPLOADROSPONSE, message);
+	put_id_to_message(message,tmp_id);
+	put_size_to_message((uint32_t)i, message);
+	strcpy(message + 3*sizeof(uint32_t)/sizeof(char), (char*)md5_sum);
+	fprintf(stderr, "Sending md5 sum for task id %d \n", tmp_id);
+	send_message(clientfd, server_addr, message, UPLOADSTRING);
+	if(write_status_to_list(tmp_id, CLIENTLISTFILE, real_file_name,  100 , package_amount, package_amount, (int)UPLOAD) == 1)
+	{
+		fprintf(stderr, "Could not update list \n");
+	}
+	sleep(1);
+	return 1;
+}
+
+void wait_for_upload_response(char* package, char* message, unsigned char* md5_sum, char* filepath, char* real_file_name, char* oldFilePath,
+									int clientfd, struct sockaddr_in server_addr )
+{
+	int id = -1;
+	int tmp_id = -1;
+	int i;
+	char* error_file_path = NULL;
+	char communicate [CHUNKSIZE - 3* sizeof(uint32_t)/ sizeof(char) - FILENAME];
+	int filesize = 0;
+	int first_empty_sign;
+	task_type task;
+	int package_amount = 0;
+	char * file_contents = NULL;
+	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
+	int work_counter = 0;
+	while(work)
+	{
+		if(work_counter == MAXTRY)
+		{
+			fprintf(stderr, "Upload waited to long \n");
+			break;
+		}
+		if(check_top_of_queue("UPLOADRESPONSE", &task, message, UPLOADROSPONSE, error_file_path) == 1)
+		{
+			work_counter++;
+			continue;
+		}
+		/* waiting for confirmation or rejection of uploading file*/
+		else if(id == -1)
+		{
+			/* check the filepath saved in message*/
+			get_filename_from_message(message, filepath);
+			for(i = 0; i < FILENAME; i++)
+			{
+				if(filepath[i] != oldFilePath[i])
+				{
+					fprintf(stderr, "Not this message, wrong filepath \n");
+					push(queue, message);
+					break;
+				}
+			}
+			/* filepaths are the same */
+			if(i == FILENAME)
+			{
+				/* check if id > 0 else show error got from server */
+				tmp_id = get_id_from_message(message);
+				strcpy(communicate, message + 3 * sizeof(uint32_t)/ sizeof(char) + FILENAME);
+				if(tmp_id == 0)
+				{
+					/* error with file , show message */
+					fprintf(stdout, "Could not upload file %s, reason : %s \n", filepath, communicate);
+					break;
+				}
+				else
+				{
+					id = tmp_id;
+					fprintf(stdout, "Server confirmed uploading file  %s, message : %s \n", filepath, communicate);
+					fprintf(stdout, "Got id %d \n", id);
+					for(i = 0; i < FILENAME; i++)
+					{
+						if(filepath[i] == '\0' || filepath[i] == '\n')
+						{
+							first_empty_sign = i;
+							break;
+						}
+					}
+					fprintf(stderr, "Empty sign found at position : %d \n", first_empty_sign);
+					real_file_name = calloc(first_empty_sign , sizeof(char));
+					if(real_file_name == NULL)
+					{
+						fprintf(stderr, "Problem with allocation memory for file name \n");
+						break;
+					}
+					if(send_upload_datagrams(first_empty_sign, file_contents, filesize, real_package_size, package_amount, md5_sum,
+						    tmp_id, package, real_file_name, message, filepath, clientfd, server_addr) == 1)
+						break;
+				}
+			}
+			else
+			{
+				work_counter++;
+			}
+		}
+	}
+	free(file_contents);
+}
+
+/*
  * thread function for uploading file
  */
 void *upload_thread_function(void *arg)
 {
 	int clientfd;
-	int id = -1;
-	int tmp_id = -1;
-	int i, j;
+	int i;
 	unsigned char md5_sum[MD5LENGTH];
 	struct sockaddr_in server_addr;
 	thread_arg targ;
 	char* filepath = NULL;
 	char* error_file_path = NULL;
 	char oldFilePath[FILENAME];
-	char communicate [CHUNKSIZE - 3* sizeof(uint32_t)/ sizeof(char) - FILENAME];
 	char * real_file_name = NULL;
-	int filesize = 0;
 	char* message = NULL;
-	int first_empty_sign;
-	task_type task;
-	int package_amount = 0;
-	char * file_contents = NULL;
 	int real_package_size = CHUNKSIZE - 3 * sizeof(uint32_t)/sizeof(char);
 	char *package = NULL;
-	int work_counter = 0;
 	package = malloc(real_package_size);
-
 	if(package == NULL)
 	{
 		fprintf(stderr, "Could not allocate memory for package \n");
@@ -715,119 +847,7 @@ void *upload_thread_function(void *arg)
 						/*
 						 * receive communicate from server about response for update
 						 */
-						while(work)
-						{
-							if(work_counter == MAXTRY)
-							{
-								fprintf(stderr, "Upload waited to long \n");
-								break;
-							}
-							if(check_top_of_queue("UPLOADRESPONSE", &task, message, UPLOADROSPONSE, error_file_path) == 1)
-							{
-								work_counter++;
-								continue;
-							}
-							/* waiting for confirmation or rejection of uploading file*/
-							else if(id == -1)
-							{
-
-								/* check the filepath saved in message*/
-								get_filename_from_message(message, filepath);
-								for(i = 0; i < FILENAME; i++)
-								{
-									if(filepath[i] != oldFilePath[i])
-									{
-										fprintf(stderr, "Not this message, wrong filepath \n");
-										push(queue, message);
-										break;
-									}
-								}
-								/* filepaths are the same */
-								if(i == FILENAME)
-								{
-									/* check if id > 0 else show error got from server */
-									tmp_id = get_id_from_message(message);
-									strcpy(communicate, message + 3 * sizeof(uint32_t)/ sizeof(char) + FILENAME);
-									if(tmp_id == 0)
-									{
-										/* error with file , show message */
-										fprintf(stdout, "Could not upload file %s, reason : %s \n", filepath, communicate);
-										break;
-									}
-									else
-									{
-										id = tmp_id;
-										fprintf(stdout, "Server confirmed uploading file  %s, message : %s \n", filepath, communicate);
-										fprintf(stdout, "Got id %d \n", id);
-										for(i = 0; i < FILENAME; i++)
-										{
-											if(filepath[i] == '\0' || filepath[i] == '\n')
-											{
-												first_empty_sign = i;
-												break;
-											}
-										}
-										fprintf(stderr, "Empty sign found at position : %d \n", first_empty_sign);
-										real_file_name = calloc(first_empty_sign , sizeof(char));
-										if(real_file_name == NULL)
-										{
-											fprintf(stderr, "Problem with allocation memory for file name \n");
-											break;
-										}
-										for(i = 0; i < first_empty_sign; i++)
-										{
-											real_file_name[i] = filepath[i];
-										}
-										fprintf(stderr, "Real file name size %d after malloc \n", first_empty_sign);
-										file_contents = read_whole_file (real_file_name);
-										if(file_contents == NULL)
-										{
-											fprintf(stderr, "Could not read file \n");
-											break;
-										}
-										generate_package_amount(&filesize, real_package_size, &package_amount, message);
-										compute_md5(file_contents, md5_sum);
-										for(i = 0; i < package_amount; i++)
-										{
-											memset(package, 0, real_package_size * sizeof(char));
-											for(j = 0; j < real_package_size; j++)
-											{
-												package[j] = file_contents[i* real_package_size + j];
-											}
-											memset(message, 0, CHUNKSIZE * sizeof(char));
-											save_massage_type_to_message(UPLOADROSPONSE, message);
-											put_id_to_message(message,tmp_id);
-											put_size_to_message((uint32_t)i, message);
-											strcpy(message + 3*sizeof(uint32_t)/sizeof(char), package);
-											fprintf(stderr, "Sending data package number %d for task id %d : %s \n", i,tmp_id, package);
-											send_message(clientfd, server_addr, message, UPLOADSTRING);
-											if(write_status_to_list(tmp_id, CLIENTLISTFILE, real_file_name, i * 100 / package_amount, package_amount, i, (int)UPLOAD) == 1)
-											{
-												fprintf(stderr, "Could not update list \n");
-											}
-											sleep(1);
-										}
-										memset(message, 0, CHUNKSIZE * sizeof(char));
-										save_massage_type_to_message(UPLOADROSPONSE, message);
-										put_id_to_message(message,tmp_id);
-										put_size_to_message((uint32_t)i, message);
-										strcpy(message + 3*sizeof(uint32_t)/sizeof(char), (char*)md5_sum);
-										fprintf(stderr, "Sending md5 sum for task id %d \n", tmp_id);
-										send_message(clientfd, server_addr, message, UPLOADSTRING);
-										if(write_status_to_list(tmp_id, CLIENTLISTFILE, real_file_name,  100 , package_amount, package_amount, (int)UPLOAD) == 1)
-											{
-												fprintf(stderr, "Could not update list \n");
-											}
-										sleep(1);
-										break;
-									}
-								}
-								else
-								{
-									work_counter++;
-								}
-							}
-						}
+						wait_for_upload_response(package, message, md5_sum, filepath, real_file_name, oldFilePath, clientfd, server_addr);
 					}
 				}
 			}
@@ -836,7 +856,6 @@ void *upload_thread_function(void *arg)
 	free(package);
 	free(error_file_path);
 	free(message);
-	free(file_contents);
 	free(real_file_name);
 	fprintf(stderr, "Destroying UPLOAD thread\n");
 	pthread_exit(&targ);
