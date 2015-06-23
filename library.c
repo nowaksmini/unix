@@ -27,6 +27,18 @@ void inicialize_file_mutex()
 	file_access = mut;
 }
 
+void inicialize_common_file_mutex()
+{
+	pthread_mutex_t *mut = (pthread_mutex_t*) malloc(sizeof(pthread_mutex_t));
+	*mut = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+	common_file_access = mut;
+}
+
+void free_common_file_mutex()
+{
+	free(common_file_access);
+}
+
 void free_file_mutex()
 {
 	free(file_access);
@@ -262,14 +274,29 @@ ssize_t bulk_read(int fd, char *buf, size_t count)
 		 * if there was error during reading return -1
 		 * if signal interrupted reading try again
 		 */
+		if(pthread_mutex_lock(common_file_access) < 0)
+		{
+			ERR("pthread_mutex_lock");
+		}
 		c = TEMP_FAILURE_RETRY(read(fd, buf, count));
 		if (c < 0)
+		{
+			if(pthread_mutex_unlock(common_file_access) < 0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
 			return c;
+		}
 		/*
 		 * end of file
 		 */
-		if (c == 0)
+		if (c == 0){
+			if(pthread_mutex_unlock(common_file_access) < 0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
 			return len;
+		}
 		/*
 		 * move iterator c signs right
 		 */
@@ -282,6 +309,10 @@ ssize_t bulk_read(int fd, char *buf, size_t count)
 		 * decrease amount of bytes to read
 		 */
 		count -= c;
+		if(pthread_mutex_unlock(common_file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 	}
 	while (count > 0);
 
@@ -310,6 +341,10 @@ ssize_t bulk_write(int fd, char *buf, size_t count)
 		 * if there was error during writting return -1
 		 * if signal interruped writting try again
 		 */
+		if(pthread_mutex_lock(common_file_access) < 0)
+		{
+			ERR("pthread_mutex_lock");
+		}
 		c = TEMP_FAILURE_RETRY(write(fd, buf, count));
 		if(c < 0)
 			return c;
@@ -325,6 +360,10 @@ ssize_t bulk_write(int fd, char *buf, size_t count)
 		 * decrease amount of bytes to write
 		 */
 		count -= c;
+		if(pthread_mutex_unlock(common_file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 	}
 	while (count > 0);
 
@@ -498,9 +537,21 @@ void put_id_to_message(char * buf, uint32_t id_message)
 int get_file_size (const char * file_name)
 {
 	struct stat sb;
+	if(pthread_mutex_lock(common_file_access) < 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
 	if (stat (file_name, & sb) != 0) {
 		fprintf (stderr, "'Stat' failed for '%s': %s.\n", file_name, strerror (errno));
+		if(pthread_mutex_unlock(common_file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
+		}
 		return -1;
+	}
+	if(pthread_mutex_unlock(common_file_access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
 	}
 	return sb.st_size;
 }
@@ -508,14 +559,34 @@ int get_file_size (const char * file_name)
 /*
  *This routine reads the entire file into memory.
  */
-char * read_whole_file (const char * file_name)
+char * read_whole_file (char * file_name)
 {
 	int s;
 	char * contents;
-	FILE * f;
 	size_t bytes_read;
-	int status;
-
+	if(pthread_mutex_lock(common_file_access) < 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
+	int fd = open(file_name, O_RDONLY);
+	while(fd < 0)
+	{
+		if(errno == EINTR)
+			continue;
+		else
+		{
+			fprintf (stderr, "Could not open '%s': %s.\n", file_name, strerror (errno));
+			if(pthread_mutex_unlock(common_file_access) < 0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
+			return NULL;
+		}
+	}
+	if(pthread_mutex_unlock(common_file_access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
+	}
 	s = get_file_size (file_name);
 	if(s == -1) return NULL;
 	contents = malloc (s + 1);
@@ -523,25 +594,14 @@ char * read_whole_file (const char * file_name)
 		fprintf (stderr, "Not enough memory.\n");
 		return NULL;
 	}
-
-	f = fopen (file_name, "r");
-	if (! f) {
-		fprintf (stderr, "Could not open '%s': %s.\n", file_name, strerror (errno));
-		return NULL;
-	}
-	bytes_read = fread (contents, sizeof (unsigned char), s, f);
+	bytes_read = bulk_read(fd, contents, s);
 	if (bytes_read != s) {
 		fprintf (stderr, "Short read of '%s': expected %d bytes "
 				"but got %zu: %s.\n", file_name, s, bytes_read,
 				strerror (errno));
 		return NULL;
 	}
-	status = fclose (f);
-	if (status != 0) {
-		fprintf (stderr, "Error closing '%s': %s.\n", file_name,
-				strerror (errno));
-		return NULL;
-	}
+	close_file(&fd, file_name);
 	return contents;
 }
 
@@ -714,17 +774,33 @@ uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
 	int fd;
 	while(1)
 	{
+		if(pthread_mutex_lock(common_file_access) < 0)
+		{
+			ERR("pthread_mutex_lock");
+		}
 		fd = open(real_file_name, O_RDWR);
 		if(fd < 0)
 		{
+			if(pthread_mutex_unlock(common_file_access) < 0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
 			if(errno == ENOENT)
 			{
 				/* file does not exists */
 				while(1)
 				{
+					if(pthread_mutex_lock(common_file_access) < 0)
+					{
+						ERR("pthread_mutex_lock");
+					}
 					fd = open(real_file_name, O_RDWR | O_CREAT, S_IRWXU | S_IRGRP | S_IROTH);
 					if(fd < 0)
 					{
+						if(pthread_mutex_unlock(common_file_access) < 0)
+						{
+							ERR("pthread_mutex_unlock");
+						}
 						if(errno == EINTR)
 							continue;
 						else
@@ -735,6 +811,10 @@ uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
 					}
 					else
 					{
+						if(pthread_mutex_unlock(common_file_access) < 0)
+						{
+							ERR("pthread_mutex_lock");
+						}
 						close_file(&fd, real_file_name);
 						break;
 					}
@@ -754,15 +834,27 @@ uint8_t create_file(char* real_file_name, int* filesize, int real_package_size,
 			else
 			{
 				fprintf(stderr, "Could not open file %s %s", real_file_name, strerror(errno));
+				if(pthread_mutex_unlock(common_file_access) < 0)
+				{
+					ERR("pthread_mutex_unlock");
+				}
 				return 1;
 			}
 		}
 		else
 		{
 			fprintf(stdout, "File already exists!\n");
+			if(pthread_mutex_unlock(common_file_access) < 0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
 			close_file(&fd, real_file_name);
 			return 1;
 		}
+	}
+	if(pthread_mutex_unlock(common_file_access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
 	}
 	return 0;
 }
@@ -838,7 +930,7 @@ uint32_t delete_status_from_list(char* file_name, char* searched_file_name)
 }
 
 /*
- * try to write record to file list, retrn 1 on errro, 0 on success
+ * try to write record to file list, return 1 on error, 0 on success
  */
 uint32_t write_status_to_list(int message_id, char* file_name, char* searched_file_name, int percentage, int package_numbers, int last_package, int task)
 {
@@ -871,7 +963,7 @@ uint32_t write_status_to_list(int message_id, char* file_name, char* searched_fi
 			if(strcmp(filepath, searched_file_name) == 0)
 			{
 				memset(line, 0, CHUNKSIZE * sizeof(char));
-				sprintf(line, "%d %s %d%% %d %d %d\n", message_id, searched_file_name, percentage, package_numbers, last_package, task);
+				snprintf(line, CHUNKSIZE * sizeof(char), "%d %s %d%% %d %d %d\n", message_id, searched_file_name, percentage, package_numbers, last_package, task);
 				fprintf(stderr, "GOT LINE %s", line);
 				exists = 1;
 			}
@@ -884,7 +976,7 @@ uint32_t write_status_to_list(int message_id, char* file_name, char* searched_fi
 	}
 	if(exists == 0)
 	{
-		sprintf(line, "%d %s %d%% %d %d %d\n", message_id, searched_file_name, percentage, package_numbers, last_package, task);
+		snprintf(line, CHUNKSIZE * sizeof(char), "%d %s %d%% %d %d %d\n", message_id, searched_file_name, percentage, package_numbers, last_package, task);
 		fprintf(stderr, "GOT NEW LINE %s", line);
 		for(i = 0; i < CHUNKSIZE; i++)
 		{
@@ -928,7 +1020,7 @@ uint32_t write_status_to_list(int message_id, char* file_name, char* searched_fi
 }
 
 /*
- * return 0 for successfull opening and creating file -> descriptor is closed
+ * return 0 for successful opening and creating file -> descriptor is closed
  */
 uint8_t create_list_file(char* file_name)
 {
@@ -1088,9 +1180,17 @@ uint8_t open_file(char* real_file_name, int *fd)
 {
 	while(1)
 	{
+		if(pthread_mutex_lock(common_file_access) < 0)
+		{
+			ERR("pthread_mutex_lock");
+		}
 		*fd = open(real_file_name, O_RDWR);
 		if(*fd < 0)
 		{
+			if(pthread_mutex_unlock(common_file_access) < 0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
 			if(errno == ENOENT)
 			{
 				/* file does not exists */
@@ -1107,6 +1207,10 @@ uint8_t open_file(char* real_file_name, int *fd)
 		else
 		{
 			fprintf(stdout, "File already exists!\n");
+			if(pthread_mutex_unlock(common_file_access) < 0)
+			{
+				ERR("pthread_mutex_unlock");
+			}
 			close_file(fd, real_file_name);
 			return 0;
 		}
@@ -1119,6 +1223,10 @@ uint8_t open_file(char* real_file_name, int *fd)
  */
 void close_file(int* fd, char* real_file_name)
 {
+	if(pthread_mutex_lock(common_file_access) < 0)
+	{
+		ERR("pthread_mutex_lock");
+	}
 	while(close(*fd) < 0)
 	{
 		if(errno == EINTR)
@@ -1128,6 +1236,10 @@ void close_file(int* fd, char* real_file_name)
 			fprintf(stderr, "Could not close file %s %s", real_file_name, strerror(errno));
 			break;
 		}
+	}
+	if(pthread_mutex_unlock(common_file_access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
 	}
 }
 

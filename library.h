@@ -19,11 +19,11 @@
 #include <inttypes.h>
 #include <openssl/md5.h>
 #define ERR(source) (perror(source),\
-		     fprintf(stderr,"%s:%d\n",__FILE__,__LINE__),\
-		     exit(EXIT_FAILURE))
+		fprintf(stderr,"%s:%d\n",__FILE__,__LINE__),\
+		exit(EXIT_FAILURE))
 
 #define HERR(source) (fprintf(stderr,"%s(%d) at %s:%d\n",source,h_errno,__FILE__,__LINE__),\
-		     exit(EXIT_FAILURE))
+		exit(EXIT_FAILURE))
 #define MD5LENGTH 200
 #define LISTFILE "list_file"
 #define CLIENTLISTFILE "client_list_file"
@@ -63,102 +63,107 @@
 #define QUEUECAPACITY 200
 
 typedef enum {REGISTER, DOWNLOAD, UPLOAD, DELETE, LIST, REGISTERRESPONSE, DOWNLOADRESPONSE,
-  UPLOADROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR, NONE} task_type;
+	UPLOADROSPONSE, DELETERESPONSE, LISTRESPONSE, ERROR, NONE} task_type;
 
-typedef struct Queue
-{
-        int capacity;
-        int size;
+	typedef struct Queue
+	{
+		int capacity;
+		int size;
 		int busy;
 		pthread_mutex_t* access;
-        char* elements;
-}Queue;
+		char* elements;
+	}Queue;
 
-typedef struct
-{
-	int* socket;
-	struct sockaddr_in *server_addr;
-	char* filename;
-	int task;
-	int package_amount;
-	int package_number;
-} thread_arg;
+	typedef struct
+	{
+		int* socket;
+		struct sockaddr_in *server_addr;
+		char* filename;
+		int task;
+		int package_amount;
+		int package_number;
+	} thread_arg;
 
-volatile sig_atomic_t work;
-Queue* queue;
-pthread_mutex_t* file_access;
+	volatile sig_atomic_t work;
+	Queue* queue;
+	pthread_mutex_t* file_access;
+	pthread_mutex_t* common_file_access;
 
-void inicialize_file_mutex();
+	void inicialize_file_mutex();
 
-void free_file_mutex();
+	void inicialize_common_file_mutex();
 
-int rand_range(int min_n, int max_n);
+	void free_common_file_mutex();
 
-task_type convert_uint32_to_task_type(uint32_t number);
+	void free_file_mutex();
 
-uint32_t convert_task_type_to_uint32(task_type task);
+	int rand_range(int min_n, int max_n);
 
-void siginthandler(int sig);
+	task_type convert_uint32_to_task_type(uint32_t number);
 
-void siginthandler(int sig);
+	uint32_t convert_task_type_to_uint32(task_type task);
 
-void sethandler(void (*f)(int), int sigNo);
+	void siginthandler(int sig);
 
-void compute_md5(char *str, unsigned char * sum);
+	void siginthandler(int sig);
 
-Queue * createQueue(int maxElements);
+	void sethandler(void (*f)(int), int sigNo);
 
-void push(Queue* queue, char* message);
+	void compute_md5(char *str, unsigned char * sum);
 
-int top(Queue* queue, char* message);
+	Queue * createQueue(int maxElements);
 
-ssize_t bulk_read(int fd, char *buf, size_t count);
+	void push(Queue* queue, char* message);
 
-ssize_t bulk_write(int fd, char *buf, size_t count);
+	int top(Queue* queue, char* message);
 
-task_type check_message_type(char * buf);
+	ssize_t bulk_read(int fd, char *buf, size_t count);
 
-void save_massage_type_to_message(uint32_t type, char* buf);
+	ssize_t bulk_write(int fd, char *buf, size_t count);
 
-void put_size_to_message(uint32_t value, char* buf);
+	task_type check_message_type(char * buf);
 
-void get_filename_from_message(char *buf, char* filename);
+	void save_massage_type_to_message(uint32_t type, char* buf);
 
-uint32_t get_id_from_message(char* buf);
+	void put_size_to_message(uint32_t value, char* buf);
 
-uint32_t get_file_size_from_message(char*message);
+	void get_filename_from_message(char *buf, char* filename);
 
-void put_id_to_message(char * buf, uint32_t id_message);
+	uint32_t get_id_from_message(char* buf);
 
-int get_file_size (const char * file_name);
+	uint32_t get_file_size_from_message(char*message);
 
-char * read_whole_file (const char * file_name);
+	void put_id_to_message(char * buf, uint32_t id_message);
 
-uint32_t delete_status_from_list(char* file_name, char* searched_file_name);
+	int get_file_size (const char * file_name);
 
-uint32_t write_status_to_list(int message_id, char* file_name, char* searched_file_name,  int percentage, int package_numbers, int last_package, int task);
+	char * read_whole_file (char * file_name);
 
-void* server_send_response_function(void * arg, char * type_name, task_type expected_type, void (*function) (task_type task, char*, int, struct sockaddr_in));
+	uint32_t delete_status_from_list(char* file_name, char* searched_file_name);
 
-int receive_message (int socket, struct sockaddr_in* received_addr, char* message);
+	uint32_t write_status_to_list(int message_id, char* file_name, char* searched_file_name,  int percentage, int package_numbers, int last_package, int task);
 
-int send_message (int socket, struct sockaddr_in receiver_addr, char* message, char* message_type);
+	void* server_send_response_function(void * arg, char * type_name, task_type expected_type, void (*function) (task_type task, char*, int, struct sockaddr_in));
 
-void free_queue();
+	int receive_message (int socket, struct sockaddr_in* received_addr, char* message);
 
-uint8_t create_list_file(char* file_name);
+	int send_message (int socket, struct sockaddr_in receiver_addr, char* message, char* message_type);
 
-uint8_t read_all_files_to_list(char* file_name);
+	void free_queue();
 
-uint8_t create_file(char* real_file_name, int* filesize, int real_package_size, int* package_amount, uint8_t** packages, char* message);
+	uint8_t create_list_file(char* file_name);
 
-void close_file(int* fd, char* real_file_name);
+	uint8_t read_all_files_to_list(char* file_name);
 
-void generate_package_amount(int* filesize, int real_package_size, int* package_amount, char* message);
+	uint8_t create_file(char* real_file_name, int* filesize, int real_package_size, int* package_amount, uint8_t** packages, char* message);
 
-uint8_t open_file(char* real_file_name, int *fd);
+	void close_file(int* fd, char* real_file_name);
 
-uint8_t check_top_of_queue(char* message_type, task_type* task, char* message, task_type expected_task, char* error_file_path);
+	void generate_package_amount(int* filesize, int real_package_size, int* package_amount, char* message);
+
+	uint8_t open_file(char* real_file_name, int *fd);
+
+	uint8_t check_top_of_queue(char* message_type, task_type* task, char* message, task_type expected_task, char* error_file_path);
 
 #endif
 

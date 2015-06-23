@@ -11,8 +11,8 @@
 0 library.h 100% 0 0
 0 library.c 100% 0 0
 0 ff 100% 0 0
-6 ble 100% 1 1 2
-0 test 100% 0 0
+4 ble 100% 1 1 2
+4 test 100% 2 2 2
 0 test~ 100% 0 0
 0 la 100% 0 0
 0 work 100% 0 0
@@ -20,4 +20,4 @@
 0 makefile 100% 0 0
 0 .gitignore 100% 0 0
 0 .git 100% 0 0
-1 list_file 100% 1 1 4
+2 list_file 100% 1 1 4

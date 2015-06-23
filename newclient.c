@@ -1052,6 +1052,7 @@ int main(int argc, char **argv)
 		usage(argv[0]);
 	queue = createQueue(QUEUECAPACITY);
 	inicialize_file_mutex();
+	inicialize_common_file_mutex();
 	if(create_list_file(CLIENTLISTFILE) == 1)
 		fprintf(stderr, "Problem with creating list file \n");
 		else
@@ -1099,6 +1100,7 @@ int main(int argc, char **argv)
 	
 	do_work(socket);
 	free_queue();
+	free_common_file_mutex();
 	free_file_mutex();
 	return EXIT_SUCCESS;
 }

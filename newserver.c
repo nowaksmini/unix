@@ -100,6 +100,10 @@ void generate_delete_response_message(task_type task, char* message, int socket,
 			put_id_to_message(message, message_id);
 			save_massage_type_to_message(DELETE, message);
 			strcpy(message + 3*sizeof(uint32_t)/sizeof(char), filepath);
+			if(pthread_mutex_lock(common_file_access) < 0)
+			{
+				ERR("pthread_mutex_lock");
+			}
 			if(remove(real_file_name) < 0)
 			{
 				if(errno == EBUSY)
@@ -118,6 +122,10 @@ void generate_delete_response_message(task_type task, char* message, int socket,
 				strcpy(message + 3*sizeof(uint32_t)/sizeof(char) + FILENAME, DELETERESPONSESUCCESS);
 				break;
 			}
+		}
+		if(pthread_mutex_unlock(common_file_access) < 0)
+		{
+			ERR("pthread_mutex_unlock");
 		}
 		send_message(socket, client_addr, message, DELETESTRING);
 	}
@@ -184,7 +192,7 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 		{
 			fprintf(stderr, "Could not allocate memory for file name \n");
 			generate_failed_upload_response(message, message_id, filepath, socket, client_addr);
-					failed = 1;
+			failed = 1;
 		}
 		else
 		{
@@ -270,6 +278,10 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 							else
 							{
 								fprintf(stderr, "Write data to update file \n");
+								if(pthread_mutex_lock(common_file_access) < 0)
+								{
+									ERR("pthread_mutex_lock");
+								}
 								if ((fd = TEMP_FAILURE_RETRY(open(real_file_name, O_RDWR))) == -1)
 								{
 									fprintf(stderr, "Could not open file %s %s \n", real_file_name, strerror(errno));
@@ -282,8 +294,16 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 									if(lseek(fd, 0, SEEK_END) < 0)
 									{
 										fprintf(stderr, "Could not write.\n");
+										if(pthread_mutex_unlock(common_file_access) < 0)
+										{
+											ERR("pthread_mutex_unlock");
+										}
 										close_file(&fd, real_file_name);
 										continue;
+									}
+									if(pthread_mutex_unlock(common_file_access) < 0)
+									{
+										ERR("pthread_mutex_unlock");
 									}
 									bulk_write(fd, package, real_package_size);
 									fprintf(stderr, "Package was written to file %s \n", real_file_name);
@@ -291,6 +311,10 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 								}
 								else
 								{
+									if(pthread_mutex_unlock(common_file_access) < 0)
+									{
+										ERR("pthread_mutex_unlock");
+									}
 									fprintf(stderr, "Pushing message back to queue \n");
 									push(queue, message);
 								}
@@ -305,6 +329,10 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 				}
 			}
 		}
+	}
+	if(pthread_mutex_unlock(common_file_access) < 0)
+	{
+		ERR("pthread_mutex_unlock");
 	}
 	if(failed == 0)
 	{
@@ -410,9 +438,9 @@ void send_file_packages(char* real_file_name, task_type task, char* task_message
 			if(package_amount != 0)
 			{
 				if(write_status_to_list(tmp_id, LISTFILE, real_file_name, (i) * 100 / package_amount, package_amount, i, (int)task) == 1)
-			{
-				fprintf(stderr, "Could not update list \n");
-			}
+				{
+					fprintf(stderr, "Could not update list \n");
+				}
 			}
 			sleep(1);
 		}
@@ -424,9 +452,9 @@ void send_file_packages(char* real_file_name, task_type task, char* task_message
 		strcpy(message + 3*sizeof(uint32_t)/sizeof(char), (char*)md5_sum);
 		send_message(socket, client_addr, message, task_message);
 		if(write_status_to_list(tmp_id, LISTFILE, real_file_name, 100, package_amount, package_amount, (int)task) == 1)
-			{
-				fprintf(stderr, "Could not update list \n");
-			}
+		{
+			fprintf(stderr, "Could not update list \n");
+		}
 		sleep(1);
 	}
 }
@@ -725,22 +753,24 @@ int main(int argc, char **argv)
 	my_endpoint_listening_addr = make_address(atoi(argv[1]));
 
 	socket = connect_socket(my_endpoint_listening_addr);
-	
+
 	queue = createQueue(QUEUECAPACITY);
 	inicialize_file_mutex();
+	inicialize_common_file_mutex();
 	if(create_list_file(LISTFILE) == 1)
 		fprintf(stderr, "Problem with creating list file \n");
-		else
+	else
+	{
+		if(read_all_files_to_list(LISTFILE) == 1)
 		{
-			if(read_all_files_to_list(LISTFILE) == 1)
-			{
-				fprintf(stderr, "Problem with writing record to list \n");
-			}
+			fprintf(stderr, "Problem with writing record to list \n");
 		}
+	}
 	fprintf(stderr, "Created queue \n");
 
 	do_work(socket);
 	free_queue();
 	free_file_mutex();
+	free_common_file_mutex();
 	return EXIT_SUCCESS;
 }
