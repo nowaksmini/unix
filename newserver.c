@@ -305,7 +305,7 @@ void generate_upload_response_message(task_type task, char* message, int socket,
 									{
 										ERR("pthread_mutex_unlock");
 									}
-									bulk_write(fd, package, real_package_size);
+									bulk_write(fd, package, strlen(package));
 									fprintf(stderr, "Package was written to file %s \n", real_file_name);
 									close_file(&fd, real_file_name);
 								}

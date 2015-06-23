@@ -467,7 +467,7 @@ void* wait_for_packages(char* message_type, task_type expected_type, char *messa
 							{
 								ERR("pthread_mutex_unlock");
 							}
-							bulk_write(fd, package, real_package_size );
+							bulk_write(fd, package, strlen(package));
 							fprintf(stderr, "Package was written to file %s \n", real_file_name);
 							close_file(&fd, real_file_name);
 						}
